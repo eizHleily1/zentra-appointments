@@ -1,0 +1,22 @@
+{
+  "name": "appointment-saas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phase 1 foundation for the appointment booking SaaS platform.",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "dev:api": "pnpm --filter @appointment-saas/api start:dev",
+    "dev:mobile": "pnpm --filter @appointment-saas/mobile start",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:init:auth": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/phase-2-auth.sql",
+    "db:init:tenants": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/phase-3-tenant-model.sql"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2"
+  }
+}

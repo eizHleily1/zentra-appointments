@@ -1,0 +1,13 @@
+process.env.DATABASE_URL ??= "postgresql://appointment_saas:appointment_saas@localhost:5433/appointment_saas_dev";
+process.env.NODE_ENV ??= "test";
+process.env.PORT ??= "3001";
+process.env.JWT_ACCESS_TOKEN_SECRET ??= "test-access-token-secret-at-least-32-chars";
+process.env.JWT_ACCESS_TOKEN_EXPIRES_IN ??= "15m";
+process.env.REFRESH_TOKEN_EXPIRES_IN ??= "7d";
+process.env.PASSWORD_MIN_LENGTH ??= "8";
+process.env.AUTH_REGISTER_RATE_LIMIT_MAX ??= "2";
+process.env.AUTH_REGISTER_RATE_LIMIT_TTL_SECONDS ??= "60";
+process.env.AUTH_LOGIN_RATE_LIMIT_MAX ??= "2";
+process.env.AUTH_LOGIN_RATE_LIMIT_TTL_SECONDS ??= "60";
+process.env.AUTH_REFRESH_RATE_LIMIT_MAX ??= "2";
+process.env.AUTH_REFRESH_RATE_LIMIT_TTL_SECONDS ??= "60";

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: appointment-saas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: appointment_saas
+      POSTGRES_PASSWORD: appointment_saas
+      POSTGRES_DB: appointment_saas_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appointment_saas -d appointment_saas_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
