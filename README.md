@@ -168,6 +168,12 @@ Initialize Iteration 2 membership tables:
 pnpm db:init:memberships
 ```
 
+Initialize Iteration 3 service tables:
+
+```bash
+pnpm db:init:services
+```
+
 ## Start Applications
 
 Start the backend:
@@ -283,6 +289,40 @@ POST /businesses/:businessId/deactivate
 
 Business endpoints require a valid Phase 2 JWT access token. Creating a business also creates the authenticated user's `OWNER` membership. Viewing businesses uses memberships, and business updates/deactivation require the `OWNER` membership.
 
+## Service Endpoints
+
+Create service:
+
+```text
+POST /businesses/:businessId/services
+```
+
+List services for a business:
+
+```text
+GET /businesses/:businessId/services
+```
+
+View service details:
+
+```text
+GET /businesses/:businessId/services/:serviceId
+```
+
+Update service:
+
+```text
+PATCH /businesses/:businessId/services/:serviceId
+```
+
+Deactivate service:
+
+```text
+POST /businesses/:businessId/services/:serviceId/deactivate
+```
+
+Service endpoints require a valid Phase 2 JWT access token and an existing membership for the target business. Services are always scoped to exactly one business and are deactivated by setting `active` to `false`.
+
 ## Validation
 
 Run all type checks:
@@ -347,6 +387,18 @@ Run the SQL with:
 
 ```bash
 pnpm db:init:memberships
+```
+
+Iteration 3 service tables are initialized explicitly with:
+
+```text
+apps/api/db/iteration-3-services.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:services
 ```
 
 The Nest application does not create tables during startup. No ORM has been selected. No ORM client or ORM migrations are included.

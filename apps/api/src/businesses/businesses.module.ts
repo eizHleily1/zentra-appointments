@@ -16,6 +16,7 @@ import { PostgresBusinessRepository } from "./postgres-business.repository";
       provide: BUSINESS_REPOSITORY,
       useExisting: PostgresBusinessRepository
     }
-  ]
+  ],
+  exports: [BUSINESS_REPOSITORY]
 })
 export class BusinessesModule {}
