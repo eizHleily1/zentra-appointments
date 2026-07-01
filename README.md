@@ -162,6 +162,12 @@ Initialize Phase 3 tenant tables:
 pnpm db:init:tenants
 ```
 
+Initialize Iteration 2 membership tables:
+
+```bash
+pnpm db:init:memberships
+```
+
 ## Start Applications
 
 Start the backend:
@@ -243,6 +249,40 @@ POST /tenants/:tenantId/deactivate
 
 Tenant endpoints require a valid Phase 2 JWT access token. The Phase 3 owner reference is used only as bootstrap ownership protection until future membership-based access control is implemented.
 
+## Business Endpoints
+
+Create business:
+
+```text
+POST /businesses
+```
+
+View my businesses:
+
+```text
+GET /businesses
+```
+
+View business details:
+
+```text
+GET /businesses/:businessId
+```
+
+Update business basic info:
+
+```text
+PATCH /businesses/:businessId
+```
+
+Deactivate business:
+
+```text
+POST /businesses/:businessId/deactivate
+```
+
+Business endpoints require a valid Phase 2 JWT access token. Creating a business also creates the authenticated user's `OWNER` membership. Viewing businesses uses memberships, and business updates/deactivation require the `OWNER` membership.
+
 ## Validation
 
 Run all type checks:
@@ -295,6 +335,18 @@ Run the SQL with:
 
 ```bash
 pnpm db:init:tenants
+```
+
+Iteration 2 membership tables are initialized explicitly with:
+
+```text
+apps/api/db/iteration-2-business-memberships.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:memberships
 ```
 
 The Nest application does not create tables during startup. No ORM has been selected. No ORM client or ORM migrations are included.

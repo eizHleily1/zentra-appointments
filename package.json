@@ -14,7 +14,8 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:init:auth": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/phase-2-auth.sql",
-    "db:init:tenants": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/phase-3-tenant-model.sql"
+    "db:init:tenants": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/phase-3-tenant-model.sql",
+    "db:init:memberships": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-2-business-memberships.sql"
   },
   "devDependencies": {
     "prettier": "^3.4.2"

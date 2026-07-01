@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { AuthModule } from "./auth/auth.module";
+import { BusinessesModule } from "./businesses/businesses.module";
 import { HealthController } from "./health/health.controller";
 import { TenantsModule } from "./tenants/tenants.module";
 import { validateEnvironment } from "./config/environment";
@@ -12,6 +13,7 @@ import { validateEnvironment } from "./config/environment";
       validate: validateEnvironment
     }),
     AuthModule,
+    BusinessesModule,
     TenantsModule
   ],
   controllers: [HealthController]
