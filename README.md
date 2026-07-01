@@ -180,6 +180,12 @@ Initialize Iteration 4 staff tables:
 pnpm db:init:staff
 ```
 
+Initialize Iteration 5 appointment tables:
+
+```bash
+pnpm db:init:appointments
+```
+
 ## Start Applications
 
 Start the backend:
@@ -363,6 +369,40 @@ POST /businesses/:businessId/staff/:staffMemberId/deactivate
 
 Staff endpoints require a valid Phase 2 JWT access token and an existing membership for the target business. Staff members are always scoped to exactly one business and are deactivated by setting `active` to `false`.
 
+## Appointment Endpoints
+
+Create appointment:
+
+```text
+POST /businesses/:businessId/appointments
+```
+
+List appointments for a business:
+
+```text
+GET /businesses/:businessId/appointments
+```
+
+View appointment details:
+
+```text
+GET /businesses/:businessId/appointments/:appointmentId
+```
+
+Cancel appointment:
+
+```text
+POST /businesses/:businessId/appointments/:appointmentId/cancel
+```
+
+Complete appointment:
+
+```text
+POST /businesses/:businessId/appointments/:appointmentId/complete
+```
+
+Appointment endpoints require a valid Phase 2 JWT access token and an existing membership for the target business. Appointments are always scoped to exactly one business and store service/staff snapshot fields at booking time.
+
 ## Validation
 
 Run all type checks:
@@ -451,6 +491,18 @@ Run the SQL with:
 
 ```bash
 pnpm db:init:staff
+```
+
+Iteration 5 appointment tables are initialized explicitly with:
+
+```text
+apps/api/db/iteration-5-appointments.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:appointments
 ```
 
 The Nest application does not create tables during startup. No ORM has been selected. No ORM client or ORM migrations are included.

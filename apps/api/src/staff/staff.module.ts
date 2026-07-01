@@ -17,6 +17,7 @@ import { StaffService } from "./staff.service";
       provide: STAFF_REPOSITORY,
       useExisting: PostgresStaffRepository
     }
-  ]
+  ],
+  exports: [STAFF_REPOSITORY]
 })
 export class StaffModule {}

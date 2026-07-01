@@ -17,6 +17,7 @@ import { ServicesService } from "./services.service";
       provide: SERVICE_REPOSITORY,
       useExisting: PostgresServiceRepository
     }
-  ]
+  ],
+  exports: [SERVICE_REPOSITORY]
 })
 export class ServicesModule {}
