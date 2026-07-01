@@ -174,6 +174,12 @@ Initialize Iteration 3 service tables:
 pnpm db:init:services
 ```
 
+Initialize Iteration 4 staff tables:
+
+```bash
+pnpm db:init:staff
+```
+
 ## Start Applications
 
 Start the backend:
@@ -323,6 +329,40 @@ POST /businesses/:businessId/services/:serviceId/deactivate
 
 Service endpoints require a valid Phase 2 JWT access token and an existing membership for the target business. Services are always scoped to exactly one business and are deactivated by setting `active` to `false`.
 
+## Staff Endpoints
+
+Create staff member:
+
+```text
+POST /businesses/:businessId/staff
+```
+
+List staff members for a business:
+
+```text
+GET /businesses/:businessId/staff
+```
+
+View staff member details:
+
+```text
+GET /businesses/:businessId/staff/:staffMemberId
+```
+
+Update staff member basic info:
+
+```text
+PATCH /businesses/:businessId/staff/:staffMemberId
+```
+
+Deactivate staff member:
+
+```text
+POST /businesses/:businessId/staff/:staffMemberId/deactivate
+```
+
+Staff endpoints require a valid Phase 2 JWT access token and an existing membership for the target business. Staff members are always scoped to exactly one business and are deactivated by setting `active` to `false`.
+
 ## Validation
 
 Run all type checks:
@@ -399,6 +439,18 @@ Run the SQL with:
 
 ```bash
 pnpm db:init:services
+```
+
+Iteration 4 staff tables are initialized explicitly with:
+
+```text
+apps/api/db/iteration-4-staff.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:staff
 ```
 
 The Nest application does not create tables during startup. No ORM has been selected. No ORM client or ORM migrations are included.

@@ -4,6 +4,7 @@ import { AuthModule } from "./auth/auth.module";
 import { BusinessesModule } from "./businesses/businesses.module";
 import { HealthController } from "./health/health.controller";
 import { ServicesModule } from "./services/services.module";
+import { StaffModule } from "./staff/staff.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { validateEnvironment } from "./config/environment";
 
@@ -16,6 +17,7 @@ import { validateEnvironment } from "./config/environment";
     AuthModule,
     BusinessesModule,
     ServicesModule,
+    StaffModule,
     TenantsModule
   ],
   controllers: [HealthController]
