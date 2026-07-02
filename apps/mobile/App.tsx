@@ -70,6 +70,7 @@ const BUSINESS_TYPES = ["BARBER", "SALON", "NAIL_ARTIST", "THERAPIST", "CLINIC",
 
 export default function App() {
   const [tokens, setTokens] = useState<AuthTokens | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("auth");
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -145,6 +146,7 @@ export default function App() {
 
   function logout() {
     setTokens(null);
+    setCurrentUserId(null);
     setBusinesses([]);
     setServices([]);
     setStaffMembers([]);
@@ -168,6 +170,7 @@ export default function App() {
         <AuthScreen
           onLogin={(nextTokens) => {
             setTokens(nextTokens);
+            setCurrentUserId(getSubjectFromJwt(nextTokens.accessToken));
             setScreen("businesses");
             void run(loadBusinesses);
           }}
@@ -178,6 +181,7 @@ export default function App() {
       {screen === "businesses" ? (
         <BusinessesScreen
           businesses={businesses}
+          currentUserId={currentUserId}
           onCreateBusiness={() => setScreen("create-business")}
           onRefresh={() => void run(loadBusinesses)}
           onSelectBusiness={selectBusiness}
@@ -228,6 +232,7 @@ export default function App() {
       {screen === "staff" && selectedBusiness ? (
         <StaffScreen
           businessId={selectedBusiness.id}
+          currentUserId={currentUserId}
           refresh={() => loadBusinessData(selectedBusiness)}
           request={api.request}
           run={run}
@@ -240,6 +245,7 @@ export default function App() {
         <AppointmentsScreen
           appointments={appointments}
           businessId={selectedBusiness.id}
+          currentUserId={currentUserId}
           refresh={() => loadBusinessData(selectedBusiness)}
           request={api.request}
           run={run}
@@ -296,11 +302,13 @@ function AuthScreen({
 
 function BusinessesScreen({
   businesses,
+  currentUserId,
   onCreateBusiness,
   onRefresh,
   onSelectBusiness
 }: {
   businesses: Business[];
+  currentUserId: string | null;
   onCreateBusiness: () => void;
   onRefresh: () => void;
   onSelectBusiness: (business: Business) => void;
@@ -308,6 +316,7 @@ function BusinessesScreen({
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>My Businesses</Text>
+      {currentUserId ? <Summary title="Signed in user ID" value={currentUserId} /> : null}
       <View style={styles.row}>
         <Button title="Refresh" onPress={onRefresh} />
         <Button title="Create Business" onPress={onCreateBusiness} />
@@ -470,6 +479,7 @@ function ServicesScreen({
 
 function StaffScreen({
   businessId,
+  currentUserId,
   refresh,
   request,
   run,
@@ -477,6 +487,7 @@ function StaffScreen({
   staffMembers
 }: {
   businessId: string;
+  currentUserId: string | null;
   refresh: () => Promise<void>;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   run: (action: () => Promise<void>, successMessage?: string) => Promise<void>;
@@ -484,7 +495,7 @@ function StaffScreen({
   staffMembers: StaffMember[];
 }) {
   const [selectedStaffMemberId, setSelectedStaffMemberId] = useState("");
-  const [userId, setUserId] = useState("");
+  const [userId, setUserId] = useState(currentUserId ?? "");
   const [displayName, setDisplayName] = useState("");
 
   function useStaffMember(staffMember: StaffMember) {
@@ -497,6 +508,7 @@ function StaffScreen({
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Staff</Text>
       <Button title="Back to Dashboard" onPress={showDashboard} />
+      {currentUserId ? <Summary title="Signed in user ID" value={currentUserId} /> : null}
       <TextInput onChangeText={setUserId} placeholder="Existing user ID" style={styles.input} value={userId} />
       <TextInput onChangeText={setDisplayName} placeholder="Display name" style={styles.input} value={displayName} />
       <View style={styles.row}>
@@ -536,6 +548,7 @@ function StaffScreen({
 function AppointmentsScreen({
   appointments,
   businessId,
+  currentUserId,
   refresh,
   request,
   run,
@@ -545,6 +558,7 @@ function AppointmentsScreen({
 }: {
   appointments: Appointment[];
   businessId: string;
+  currentUserId: string | null;
   refresh: () => Promise<void>;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   run: (action: () => Promise<void>, successMessage?: string) => Promise<void>;
@@ -552,7 +566,7 @@ function AppointmentsScreen({
   showDashboard: () => void;
   staffMembers: StaffMember[];
 }) {
-  const [clientUserId, setClientUserId] = useState("");
+  const [clientUserId, setClientUserId] = useState(currentUserId ?? "");
   const [serviceId, setServiceId] = useState("");
   const [staffMemberId, setStaffMemberId] = useState("");
   const [startsAt, setStartsAt] = useState("2026-07-01T10:00:00.000Z");
@@ -562,6 +576,7 @@ function AppointmentsScreen({
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Appointments</Text>
       <Button title="Back to Dashboard" onPress={showDashboard} />
+      {currentUserId ? <Summary title="Signed in client user ID" value={currentUserId} /> : null}
       <TextInput onChangeText={setClientUserId} placeholder="Client user ID" style={styles.input} value={clientUserId} />
       <TextInput onChangeText={setServiceId} placeholder="Service ID" style={styles.input} value={serviceId} />
       <TextInput onChangeText={setStaffMemberId} placeholder="Staff member ID" style={styles.input} value={staffMemberId} />
@@ -606,6 +621,17 @@ function Summary({ title, value }: { title: string; value: string }) {
       <Text>{value}</Text>
     </View>
   );
+}
+
+function getSubjectFromJwt(accessToken: string): string {
+  const payload = accessToken.split(".")[1];
+  const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+  const paddedPayload = normalizedPayload.padEnd(
+    normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
+    "="
+  );
+
+  return JSON.parse(globalThis.atob(paddedPayload)).sub;
 }
 
 const styles = StyleSheet.create({
