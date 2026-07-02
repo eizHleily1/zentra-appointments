@@ -6,7 +6,7 @@ Foundation and authentication baseline for a multi-tenant appointment booking Sa
 
 The approved product architecture uses one mobile application, one backend, and one shared PostgreSQL database with a shared schema. Tenants represent independent businesses, and tenant-owned records will be logically isolated in future phases.
 
-The current implementation includes the Phase 1 foundation, Phase 2 authentication, and Phase 3 tenant model. It does not implement memberships, tenant switching, authorization, booking, or business workflows.
+The current implementation includes the Phase 1 foundation, Phase 2 authentication, Phase 3 tenant model, business memberships, services, staff, appointments, and basic mobile MVP screens. It does not implement advanced scheduling, availability, payments, notifications, analytics, branding, platform admin functionality, or AI features.
 
 ## Phase 1 Scope
 
@@ -21,7 +21,7 @@ Implemented in this foundation:
 - Backend health check at `/health`.
 - Basic typecheck, lint, and test scripts.
 
-Still not implemented:
+Excluded from Phase 1:
 
 - Tenant memberships.
 - Tenant switching.
@@ -216,6 +216,26 @@ Start the mobile app:
 ```bash
 pnpm dev:mobile
 ```
+
+The mobile app reads the backend base URL from `EXPO_PUBLIC_API_URL` in `apps/mobile/.env`. The default example points to:
+
+```text
+http://localhost:3001
+```
+
+## Mobile MVP Screens
+
+The mobile app includes simple functional screens for:
+
+- Registration and login.
+- My businesses.
+- Create business.
+- Business dashboard.
+- Services list, create, update, and deactivate.
+- Staff list, create, update, and deactivate.
+- Appointments list, create, cancel, and complete.
+
+The mobile MVP uses existing backend APIs only and keeps authentication tokens in app memory for the current session.
 
 ## Authentication Endpoints
 
