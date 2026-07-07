@@ -24,7 +24,8 @@
     "db:init:appointment-overlap": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-9-appointment-overlap.sql",
     "db:init:clients": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-10-clients.sql",
     "db:init:appointment-clients": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-11-appointment-clients.sql",
-    "db:init:location": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-12-business-location.sql"
+    "db:init:location": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-12-business-location.sql",
+    "db:init:booking-interval": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-13-booking-interval.sql"
   },
   "devDependencies": {
     "prettier": "^3.4.2"

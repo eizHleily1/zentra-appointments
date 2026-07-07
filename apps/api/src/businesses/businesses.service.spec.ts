@@ -57,6 +57,7 @@ describe("BusinessesService", () => {
     });
 
     expect(business).toMatchObject({
+      bookingIntervalMinutes: 15,
       businessType: "BARBER",
       initialOwnerUserId: "user-1",
       name: "Ahmad Barber",

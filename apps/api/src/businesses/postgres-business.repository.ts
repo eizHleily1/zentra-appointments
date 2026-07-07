@@ -11,6 +11,7 @@ import type {
 
 interface BusinessRow {
   address: string | null;
+  booking_interval_minutes: number;
   business_type: Business["businessType"];
   city: string | null;
   created_at: Date;
@@ -206,6 +207,7 @@ export class PostgresBusinessRepository implements BusinessRepository {
 function mapBusiness(row: BusinessRow): Business {
   return {
     address: row.address,
+    bookingIntervalMinutes: row.booking_interval_minutes,
     businessType: row.business_type,
     city: row.city,
     createdAt: row.created_at,

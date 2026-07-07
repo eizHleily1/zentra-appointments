@@ -525,6 +525,115 @@ Run the SQL with:
 pnpm db:init:appointments
 ```
 
+Iteration 7 service rules are initialized explicitly with:
+
+```text
+apps/api/db/iteration-7-service-rules.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:service-rules
+```
+
+Iteration 8 business hours tables are initialized explicitly with:
+
+```text
+apps/api/db/iteration-8-business-hours.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:business-hours
+```
+
+Iteration 9 appointment overlap protection is initialized explicitly with:
+
+```text
+apps/api/db/iteration-9-appointment-overlap.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:appointment-overlap
+```
+
+Iteration 10 client tables are initialized explicitly with:
+
+```text
+apps/api/db/iteration-10-clients.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:clients
+```
+
+Iteration 11 appointment client snapshots are initialized explicitly with:
+
+```text
+apps/api/db/iteration-11-appointment-clients.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:appointment-clients
+```
+
+Iteration 12 business location fields are initialized explicitly with:
+
+```text
+apps/api/db/iteration-12-business-location.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:location
+```
+
+Iteration 13 booking interval is initialized explicitly with:
+
+```text
+apps/api/db/iteration-13-booking-interval.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:booking-interval
+```
+
+This adds `booking_interval_minutes` to `tenants` with default `15` and allowed values `5, 10, 15, 20, 30, 60`.
+
+### Fresh local database setup
+
+Start PostgreSQL, then apply migrations in order:
+
+```bash
+pnpm db:up
+pnpm db:init:auth
+pnpm db:init:tenants
+pnpm db:init:memberships
+pnpm db:init:services
+pnpm db:init:staff
+pnpm db:init:appointments
+pnpm db:init:service-rules
+pnpm db:init:business-hours
+pnpm db:init:appointment-overlap
+pnpm db:init:clients
+pnpm db:init:appointment-clients
+pnpm db:init:location
+pnpm db:init:booking-interval
+```
+
+Existing databases only need the migrations they have not applied yet. SQL files use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` where possible so re-running a migration is usually safe.
+
 The Nest application does not create tables during startup. No ORM has been selected. No ORM client or ORM migrations are included.
 
 ## Development Boundary

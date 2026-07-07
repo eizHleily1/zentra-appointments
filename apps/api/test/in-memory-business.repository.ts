@@ -1,3 +1,4 @@
+import { DEFAULT_BOOKING_INTERVAL_MINUTES } from "../src/businesses/booking-interval";
 import type {
   Business,
   BusinessRepository,
@@ -17,6 +18,7 @@ export class InMemoryBusinessRepository implements BusinessRepository {
     const now = new Date();
     const business: Business = {
       address: null,
+      bookingIntervalMinutes: DEFAULT_BOOKING_INTERVAL_MINUTES,
       businessType: input.businessType,
       city: null,
       createdAt: now,

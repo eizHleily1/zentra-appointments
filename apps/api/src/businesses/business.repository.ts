@@ -6,6 +6,7 @@ export const BUSINESS_REPOSITORY = Symbol("BUSINESS_REPOSITORY");
 
 export interface Business {
   address: string | null;
+  bookingIntervalMinutes: number;
   businessType: BusinessType;
   city: string | null;
   createdAt: Date;

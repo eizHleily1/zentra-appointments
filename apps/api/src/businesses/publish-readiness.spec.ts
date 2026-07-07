@@ -7,6 +7,7 @@ describe("buildPublishReadiness", () => {
       activeStaffCount: 0,
       business: {
         address: null,
+        bookingIntervalMinutes: 15,
         businessType: "BARBER",
         city: null,
         createdAt: new Date(),

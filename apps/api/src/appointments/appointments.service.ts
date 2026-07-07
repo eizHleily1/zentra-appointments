@@ -318,6 +318,7 @@ export class AppointmentsService {
     );
 
     return generateAvailableSlots({
+      bookingIntervalMinutes: business.bookingIntervalMinutes,
       closeTime: businessHour.closeTime,
       date: command.date,
       durationMinutes: service.durationMinutes,

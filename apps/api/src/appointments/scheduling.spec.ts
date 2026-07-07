@@ -87,6 +87,7 @@ describe("scheduling", () => {
     };
 
     const slots = generateAvailableSlots({
+      bookingIntervalMinutes: 15,
       closeTime: "17:00",
       date: TEST_DATE,
       durationMinutes: 30,
@@ -98,6 +99,23 @@ describe("scheduling", () => {
 
     expect(slots.some((slot) => slot.startTime === booked.startsAt.toISOString())).toBe(false);
     expect(slots.some((slot) => slot.startTime === booked.endsAt.toISOString())).toBe(true);
+  });
+
+  it("uses the business booking interval for slot spacing", () => {
+    const now = new Date("2030-07-01T05:00:00.000Z");
+
+    const tenMinuteSlots = generateAvailableSlots({
+      bookingIntervalMinutes: 10,
+      closeTime: "10:30",
+      date: TEST_DATE,
+      durationMinutes: 30,
+      existingAppointments: [],
+      now,
+      openTime: "09:00",
+      timeZone: "Asia/Amman"
+    });
+
+    expect(tenMinuteSlots.map((slot) => slot.label)).toEqual(["9:00 AM", "9:10 AM", "9:20 AM", "9:30 AM", "9:40 AM", "9:50 AM", "10:00 AM"]);
   });
 
   it("validates start times against business hours", () => {

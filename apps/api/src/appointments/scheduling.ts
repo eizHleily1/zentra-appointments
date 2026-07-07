@@ -6,7 +6,7 @@ export interface AvailableSlot {
   startTime: string;
 }
 
-const SLOT_INTERVAL_MINUTES = 15;
+import { DEFAULT_BOOKING_INTERVAL_MINUTES } from "../businesses/booking-interval";
 
 export function appointmentsOverlap(existingStart: Date, existingEnd: Date, newStart: Date, newEnd: Date): boolean {
   return existingStart.getTime() < newEnd.getTime() && existingEnd.getTime() > newStart.getTime();
@@ -50,6 +50,7 @@ export function getZonedDayOfWeek(date: Date, timeZone: string): number {
 }
 
 export function generateAvailableSlots(input: {
+  bookingIntervalMinutes?: number;
   closeTime: string;
   date: string;
   durationMinutes: number;
@@ -62,7 +63,7 @@ export function generateAvailableSlots(input: {
   const closeUtc = zonedLocalToUtc(`${input.date}T${input.closeTime}:00`, input.timeZone);
   const slots: AvailableSlot[] = [];
   const durationMs = input.durationMinutes * 60_000;
-  const intervalMs = SLOT_INTERVAL_MINUTES * 60_000;
+  const intervalMs = (input.bookingIntervalMinutes ?? DEFAULT_BOOKING_INTERVAL_MINUTES) * 60_000;
 
   for (let candidateStartMs = openUtc.getTime(); candidateStartMs + durationMs <= closeUtc.getTime(); candidateStartMs += intervalMs) {
     const candidateStart = new Date(candidateStartMs);

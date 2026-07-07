@@ -1,25 +1,9 @@
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { DISCOVERY_CATEGORY_OPTIONS } from "../../lib/constants";
 import { formatBusinessLocation, formatBusinessType } from "../../lib/formatters";
-import type { PublicBusinessSummary } from "../../lib/types";
+import type { DiscoveryCategoryId, PublicBusinessSummary } from "../../lib/types";
 
-export type DiscoveryCategoryId =
-  | "BARBER"
-  | "BEAUTY"
-  | "CLINIC"
-  | "COACHING"
-  | "DENTIST"
-  | "FITNESS"
-  | "OTHER";
-
-export const DISCOVERY_CATEGORY_OPTIONS: Array<{ id: DiscoveryCategoryId; label: string }> = [
-  { id: "BARBER", label: "Barber" },
-  { id: "BEAUTY", label: "Beauty" },
-  { id: "DENTIST", label: "Dentist" },
-  { id: "FITNESS", label: "Fitness" },
-  { id: "CLINIC", label: "Clinic" },
-  { id: "COACHING", label: "Coaching" },
-  { id: "OTHER", label: "Other" }
-];
+export type { DiscoveryCategoryId };
 
 export function ExploreTabScreen({
   businesses,

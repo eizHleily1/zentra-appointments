@@ -1,7 +1,14 @@
 node_modules/
 dist/
+apps/api/dist/
+apps/mobile/dist/
+**/dist/
+*.tsbuildinfo
 coverage/
 .expo/
+.expo-shared/
+android/app/build/
+ios/build/
 .env
 .env.*
 !.env.example

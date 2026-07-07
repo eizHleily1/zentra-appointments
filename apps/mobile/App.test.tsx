@@ -144,7 +144,6 @@ describe("BookAppointmentScreen", () => {
         run={noopAsync as never}
         services={[]}
         staffMembers={[]}
-        timezone="Asia/Amman"
       />
     );
 
