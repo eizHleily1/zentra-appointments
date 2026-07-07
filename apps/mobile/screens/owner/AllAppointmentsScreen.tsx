@@ -1,24 +1,20 @@
 import { Button, Pressable, ScrollView, Text, View } from "react-native";
+import { AppointmentListCard } from "../../components/AppointmentListCard";
 import { sortAppointmentsChronologically } from "../../lib/appointments";
 import { styles } from "../../lib/styles";
-import type { ApiRequest, Appointment, RunAction } from "../../lib/types";
-import { AppointmentCard } from "./AppointmentCard";
+import type { Appointment } from "../../lib/types";
 
 export function AllAppointmentsScreen({
   appointments,
-  businessId,
   onBook,
+  onSelectAppointment,
   refreshAppointments,
-  request,
-  run,
   timezone
 }: {
   appointments: Appointment[];
-  businessId: string;
   onBook: () => void;
+  onSelectAppointment: (appointment: Appointment) => void;
   refreshAppointments: () => Promise<void>;
-  request: ApiRequest;
-  run: RunAction;
   timezone: string;
 }) {
   const sortedAppointments = sortAppointmentsChronologically(appointments);
@@ -41,13 +37,10 @@ export function AllAppointmentsScreen({
         </View>
       ) : (
         sortedAppointments.map((appointment) => (
-          <AppointmentCard
+          <AppointmentListCard
             key={appointment.id}
             appointment={appointment}
-            businessId={businessId}
-            onActionComplete={refreshAppointments}
-            request={request}
-            run={run}
+            onPress={() => onSelectAppointment(appointment)}
             timezone={timezone}
           />
         ))

@@ -236,6 +236,13 @@ export const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 8
   },
+  sectionLabel: {
+    color: "#334155",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 8,
+    marginTop: 20
+  },
   sectionTitle: {
     color: "#0f172a",
     fontSize: 20,

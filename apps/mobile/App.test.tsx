@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import App, {
-  AppointmentCard,
+  AppointmentListCard,
   BookAppointmentScreen,
   BusinessProfileScreen,
   buildBookAppointmentPayload,
@@ -14,8 +14,11 @@ import { ExploreTabScreen } from "./screens/consumer/ExploreTabScreen";
 import { ConsumerAppointmentCard } from "./components/ConsumerAppointmentCard";
 import { BookingConfirmationScreen } from "./screens/consumer/BookingConfirmationScreen";
 import { formatServicePriceDisplay } from "./lib/formatters";
-import { ClientsScreen } from "./screens/owner/ClientsScreen";
+import { ScheduleTabScreen } from "./screens/consumer/ScheduleTabScreen";
+import { ConsumerAppointmentDetailScreen } from "./screens/consumer/ConsumerAppointmentDetailScreen";
+import { OwnerAppointmentDetailScreen } from "./screens/owner/OwnerAppointmentDetailScreen";
 import { ClientDetailsScreen } from "./screens/owner/ClientDetailsScreen";
+import { ClientsScreen } from "./screens/owner/ClientsScreen";
 import { ClientListCard } from "./components/ClientListCard";
 import { OwnerTabBar } from "./components/OwnerTabBar";
 
@@ -183,11 +186,16 @@ describe("ConsumerAppointmentCard", () => {
     render(
       <ConsumerAppointmentCard
         appointment={{
+          businessAddress: "123 Main St",
+          businessCity: "Amman",
+          businessId: "00000000-0000-4000-8000-000000000010",
           businessName: "Downtown Barber",
           businessTimezone: "Asia/Amman",
+          clientDisplayName: "Maria",
           endsAt: "2030-07-02T07:30:00.000Z",
           id: "00000000-0000-4000-8000-000000000099",
           serviceName: "Haircut",
+          servicePrice: 15,
           staffDisplayName: "Alex",
           startsAt: "2030-07-02T07:00:00.000Z",
           status: "BOOKED"
@@ -203,7 +211,176 @@ describe("ConsumerAppointmentCard", () => {
   });
 });
 
-describe("AppointmentCard", () => {
+describe("ScheduleTabScreen", () => {
+  it("groups schedule cards by day without UUIDs or ISO timestamps", async () => {
+    const request = jest.fn().mockResolvedValue([
+      {
+        businessAddress: null,
+        businessCity: "Amman",
+        businessId: "00000000-0000-4000-8000-000000000010",
+        businessName: "Prime Barber",
+        businessTimezone: "Asia/Amman",
+        clientDisplayName: "Maria",
+        endsAt: "2030-07-03T08:30:00.000Z",
+        id: "00000000-0000-4000-8000-000000000011",
+        serviceName: "Haircut",
+        servicePrice: 15,
+        staffDisplayName: "Sam",
+        startsAt: "2030-07-03T08:00:00.000Z",
+        status: "BOOKED"
+      },
+      {
+        businessAddress: null,
+        businessCity: "Amman",
+        businessId: "00000000-0000-4000-8000-000000000010",
+        businessName: "Prime Barber",
+        businessTimezone: "Asia/Amman",
+        clientDisplayName: "Maria",
+        endsAt: "2030-07-02T09:30:00.000Z",
+        id: "00000000-0000-4000-8000-000000000012",
+        serviceName: "Beard trim",
+        servicePrice: null,
+        staffDisplayName: "Sam",
+        startsAt: "2030-07-02T09:00:00.000Z",
+        status: "BOOKED"
+      }
+    ]);
+
+    render(
+      <ScheduleTabScreen
+        isActive
+        isAuthenticated
+        onBookAgain={() => undefined}
+        onSignIn={() => undefined}
+        request={request}
+      />
+    );
+
+    expect(await screen.findByText("Beard trim · Sam")).toBeTruthy();
+    expect(screen.getByText("Haircut · Sam")).toBeTruthy();
+    expect(screen.queryByText(/00000000-0000-4000-8000-000000000011/)).toBeNull();
+    expect(screen.queryByText(/2030-07-02T09:00:00/)).toBeNull();
+  });
+
+  it("reloads schedule when returning from detail", async () => {
+    const appointment = {
+      businessAddress: null,
+      businessCity: "Amman",
+      businessId: "00000000-0000-4000-8000-000000000010",
+      businessName: "Prime Barber",
+      businessTimezone: "Asia/Amman",
+      clientDisplayName: "Maria",
+      endsAt: "2030-07-02T09:30:00.000Z",
+      id: "00000000-0000-4000-8000-000000000012",
+      serviceName: "Beard trim",
+      servicePrice: null,
+      staffDisplayName: "Sam",
+      startsAt: "2030-07-02T09:00:00.000Z",
+      status: "BOOKED" as const
+    };
+    const request = jest.fn().mockImplementation((path: string) => {
+      if (path.startsWith("/me/appointments/")) {
+        return Promise.resolve(appointment);
+      }
+
+      return Promise.resolve([appointment]);
+    });
+
+    render(
+      <ScheduleTabScreen
+        isActive
+        isAuthenticated
+        onBookAgain={() => undefined}
+        onSignIn={() => undefined}
+        request={request}
+      />
+    );
+
+    expect(await screen.findByText("Beard trim · Sam")).toBeTruthy();
+    expect(request).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(screen.getByText("Beard trim · Sam"));
+    expect(await screen.findByText("Back to Schedule")).toBeTruthy();
+
+    fireEvent.press(screen.getByText("Back to Schedule"));
+    expect(await screen.findByText("Beard trim · Sam")).toBeTruthy();
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls[2][0]).toBe("/me/appointments");
+  });
+
+  it("shows past appointments in a separate section", async () => {
+    const request = jest.fn().mockResolvedValue([
+      {
+        businessAddress: null,
+        businessCity: "Amman",
+        businessId: "00000000-0000-4000-8000-000000000010",
+        businessName: "Prime Barber",
+        businessTimezone: "Asia/Amman",
+        clientDisplayName: "Maria",
+        endsAt: "2020-01-01T08:30:00.000Z",
+        id: "00000000-0000-4000-8000-000000000013",
+        serviceName: "Old haircut",
+        servicePrice: 15,
+        staffDisplayName: "Sam",
+        startsAt: "2020-01-01T08:00:00.000Z",
+        status: "COMPLETED"
+      }
+    ]);
+
+    render(
+      <ScheduleTabScreen
+        isActive
+        isAuthenticated
+        onBookAgain={() => undefined}
+        onSignIn={() => undefined}
+        request={request}
+      />
+    );
+
+    expect(await screen.findByText("Past")).toBeTruthy();
+    expect(screen.getByText("Old haircut · Sam")).toBeTruthy();
+    expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.getByText("No upcoming appointments")).toBeTruthy();
+  });
+});
+
+describe("ConsumerAppointmentDetailScreen", () => {
+  it("renders human-readable appointment details and book again", async () => {
+    const onBookAgain = jest.fn();
+    const request = jest.fn().mockResolvedValue({
+      businessAddress: "123 Main St",
+      businessCity: "Amman",
+      businessId: "00000000-0000-4000-8000-000000000010",
+      businessName: "Prime Barber",
+      businessTimezone: "Asia/Amman",
+      clientDisplayName: "Maria",
+      endsAt: "2030-07-02T07:30:00.000Z",
+      id: "00000000-0000-4000-8000-000000000011",
+      serviceName: "Haircut",
+      servicePrice: 15,
+      staffDisplayName: "Sam",
+      startsAt: "2030-07-02T07:00:00.000Z",
+      status: "BOOKED"
+    });
+
+    render(
+      <ConsumerAppointmentDetailScreen
+        appointmentId="00000000-0000-4000-8000-000000000011"
+        onBack={() => undefined}
+        onBookAgain={onBookAgain}
+        request={request}
+      />
+    );
+
+    expect(await screen.findByText("Prime Barber")).toBeTruthy();
+    expect(screen.getByText("Booked")).toBeTruthy();
+    expect(screen.getByText("Amman · 123 Main St")).toBeTruthy();
+    fireEvent.press(screen.getByText("Book again"));
+    expect(onBookAgain).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000010");
+  });
+});
+
+describe("OwnerAppointmentDetailScreen", () => {
   const baseAppointment = {
     businessId: "business-1",
     clientDisplayName: "Maria Lopez",
@@ -221,12 +398,15 @@ describe("AppointmentCard", () => {
     status: "BOOKED" as const
   };
 
-  it("renders clientDisplayName", () => {
+  it("renders client info and booked actions with confirmation", async () => {
     render(
-      <AppointmentCard
-        appointment={baseAppointment}
+      <OwnerAppointmentDetailScreen
+        appointmentId={baseAppointment.id}
         businessId="business-1"
+        initialAppointment={baseAppointment}
         onActionComplete={noopAsync}
+        onBack={() => undefined}
+        onBookForClient={() => undefined}
         request={noopAsync as never}
         run={noopAsync as never}
         timezone="Asia/Amman"
@@ -234,22 +414,77 @@ describe("AppointmentCard", () => {
     );
 
     expect(screen.getByText("Maria Lopez")).toBeTruthy();
+    expect(screen.getByText("+1 555-123-4567")).toBeTruthy();
+    expect(screen.getByText("Complete appointment")).toBeTruthy();
+    fireEvent.press(screen.getByText("Cancel appointment"));
+    expect(screen.getByText("Cancel this appointment?")).toBeTruthy();
   });
 
-  it("still renders owner appointment actions", () => {
+  it("hides booked actions when appointment is completed", () => {
     render(
-      <AppointmentCard
-        appointment={baseAppointment}
+      <OwnerAppointmentDetailScreen
+        appointmentId={baseAppointment.id}
         businessId="business-1"
+        initialAppointment={{ ...baseAppointment, status: "COMPLETED" }}
         onActionComplete={noopAsync}
+        onBack={() => undefined}
+        onBookForClient={() => undefined}
         request={noopAsync as never}
         run={noopAsync as never}
         timezone="Asia/Amman"
       />
     );
 
-    expect(screen.getByText("Complete")).toBeTruthy();
-    expect(screen.getByText("Cancel")).toBeTruthy();
+    expect(screen.queryByText("Complete appointment")).toBeNull();
+    expect(screen.queryByText("Cancel appointment")).toBeNull();
+  });
+});
+
+describe("AppointmentListCard", () => {
+  const baseAppointment = {
+    businessId: "business-1",
+    clientDisplayName: "Maria Lopez",
+    clientId: "00000000-0000-4000-8000-000000000001",
+    clientPhoneNumber: "+1 555-123-4567",
+    endsAt: "2030-07-02T07:30:00.000Z",
+    id: "00000000-0000-4000-8000-000000000099",
+    serviceDurationMinutes: 30,
+    serviceId: "00000000-0000-4000-8000-000000000002",
+    serviceName: "Haircut",
+    servicePrice: 15,
+    staffDisplayName: "Alex",
+    staffMemberId: "00000000-0000-4000-8000-000000000003",
+    startsAt: "2030-07-02T07:00:00.000Z",
+    status: "BOOKED" as const
+  };
+
+  it("renders clientDisplayName and opens detail on press", () => {
+    const onPress = jest.fn();
+
+    render(
+      <AppointmentListCard
+        appointment={baseAppointment}
+        onPress={onPress}
+        timezone="Asia/Amman"
+      />
+    );
+
+    expect(screen.getByText("Maria Lopez")).toBeTruthy();
+    fireEvent.press(screen.getByText("Maria Lopez"));
+    expect(onPress).toHaveBeenCalled();
+  });
+
+  it("does not render inline complete or cancel actions", () => {
+    render(
+      <AppointmentListCard
+        appointment={baseAppointment}
+        onPress={() => undefined}
+        timezone="Asia/Amman"
+      />
+    );
+
+    expect(screen.queryByText("Complete")).toBeNull();
+    expect(screen.queryByText("Cancel")).toBeNull();
   });
 });
 

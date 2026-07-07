@@ -129,13 +129,15 @@ export interface PendingBookingState {
 }
 
 export interface ConsumerAppointment extends Appointment {
+  businessAddress: string | null;
+  businessCity: string | null;
   businessName: string;
   businessTimezone: string;
 }
 
 export type Tab = "home" | "appointments" | "clients" | "settings";
 
-export type OverlayScreen = "book" | "business-hours" | "services" | "staff" | null;
+export type OverlayScreen = "book" | "business-hours" | "services" | "staff" | "owner-appointment-detail" | null;
 
 export interface BookingInitialClient {
   displayName: string;

@@ -22,6 +22,8 @@ export interface Appointment {
 }
 
 export interface ConsumerAppointment extends Appointment {
+  businessAddress: string | null;
+  businessCity: string | null;
   businessName: string;
   businessTimezone: string;
 }

@@ -1,8 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Pressable, ScrollView, Text, View } from "react-native";
+import { Button, Text, View } from "react-native";
 import { AuthPromptModal } from "./components/AuthPromptModal";
-import { ConsumerAppointmentCard } from "./components/ConsumerAppointmentCard";
 import { ConsumerTabBar, type ConsumerTab } from "./components/ConsumerTabBar";
 import { OwnerTabBar } from "./components/OwnerTabBar";
 import { apiFetch, createApiClient } from "./lib/api";
@@ -16,7 +15,6 @@ import type {
   BookingInitialClient,
   Business,
   BusinessService,
-  Client,
   ClientScreen,
   ConsumerAppointment,
   DiscoveryCategoryId,
@@ -33,6 +31,8 @@ import { ClientBookAppointmentScreen } from "./screens/consumer/ClientBookAppoin
 import { ConsumerHomeScreen } from "./screens/consumer/ConsumerHomeScreen";
 import { ExploreTabScreen } from "./screens/consumer/ExploreTabScreen";
 import { ProfileTabScreen } from "./screens/consumer/ProfileTabScreen";
+import { ScheduleTabScreen } from "./screens/consumer/ScheduleTabScreen";
+import { OwnerAppointmentDetailScreen } from "./screens/owner/OwnerAppointmentDetailScreen";
 import { AllAppointmentsScreen } from "./screens/owner/AllAppointmentsScreen";
 import { BookAppointmentScreen } from "./screens/owner/BookAppointmentScreen";
 import { BusinessHoursScreen } from "./screens/owner/BusinessHoursScreen";
@@ -59,7 +59,7 @@ export {
   formatTodayHeading
 } from "./lib/formatters";
 export type { DiscoveryCategoryId } from "./lib/types";
-export { AppointmentCard } from "./screens/owner/AppointmentCard";
+export { AppointmentListCard } from "./components/AppointmentListCard";
 export { buildBookAppointmentPayload, BookAppointmentScreen } from "./screens/owner/BookAppointmentScreen";
 export { CategoryBusinessListScreen } from "./screens/consumer/CategoryBusinessListScreen";
 export { BusinessProfileScreen } from "./screens/consumer/BusinessProfileScreen";
@@ -87,6 +87,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [overlayScreen, setOverlayScreen] = useState<OverlayScreen>(null);
   const [bookingInitialClient, setBookingInitialClient] = useState<BookingInitialClient | null>(null);
+  const [selectedOwnerAppointment, setSelectedOwnerAppointment] = useState<Appointment | null>(null);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [services, setServices] = useState<BusinessService[]>([]);
@@ -308,25 +309,28 @@ export default function App() {
     setActiveTab("home");
     setOverlayScreen(null);
     setBookingInitialClient(null);
+    setSelectedOwnerAppointment(null);
     setMessage(null);
   }
 
-  const openBookAppointment = useCallback((client?: Client) => {
-    setBookingInitialClient(
-      client
-        ? {
-            displayName: client.displayName,
-            id: client.id,
-            phoneNumber: client.phoneNumber
-          }
-        : null
-    );
+  const openBookAppointment = useCallback((client?: BookingInitialClient) => {
+    setBookingInitialClient(client ?? null);
     setOverlayScreen("book");
   }, []);
 
   const closeBookAppointment = useCallback(() => {
     setOverlayScreen(null);
     setBookingInitialClient(null);
+  }, []);
+
+  const openOwnerAppointmentDetail = useCallback((appointment: Appointment) => {
+    setSelectedOwnerAppointment(appointment);
+    setOverlayScreen("owner-appointment-detail");
+  }, []);
+
+  const closeOwnerAppointmentDetail = useCallback(() => {
+    setOverlayScreen(null);
+    setSelectedOwnerAppointment(null);
   }, []);
 
   const showOwnerApp = appArea === "owner" && tokens !== null && selectedBusiness !== null;
@@ -376,6 +380,23 @@ export default function App() {
             }, "Business created")
           }
           onCancel={() => setAuthScreen("businesses")}
+        />
+      ) : null}
+
+      {showOwnerApp && overlayScreen === "owner-appointment-detail" && selectedOwnerAppointment && selectedBusiness ? (
+        <OwnerAppointmentDetailScreen
+          appointmentId={selectedOwnerAppointment.id}
+          businessId={selectedBusiness.id}
+          initialAppointment={selectedOwnerAppointment}
+          onActionComplete={refreshCurrentBusiness}
+          onBack={closeOwnerAppointmentDetail}
+          onBookForClient={(client) => {
+            closeOwnerAppointmentDetail();
+            openBookAppointment(client);
+          }}
+          request={api.request}
+          run={run}
+          timezone={selectedBusiness.timezone}
         />
       ) : null}
 
@@ -431,21 +452,18 @@ export default function App() {
               business={selectedBusiness}
               onBook={() => openBookAppointment()}
               onOpenSettings={() => setActiveTab("settings")}
+              onSelectAppointment={openOwnerAppointmentDetail}
               publishReadiness={publishReadiness}
               refreshAppointments={() => run(refreshCurrentBusiness)}
-              request={api.request}
-              run={run}
             />
           ) : null}
 
           {activeTab === "appointments" ? (
             <AllAppointmentsScreen
               appointments={appointments}
-              businessId={selectedBusiness.id}
               onBook={() => openBookAppointment()}
+              onSelectAppointment={openOwnerAppointmentDetail}
               refreshAppointments={() => run(refreshCurrentBusiness)}
-              request={api.request}
-              run={run}
               timezone={selectedBusiness.timezone}
             />
           ) : null}
@@ -585,32 +603,16 @@ export default function App() {
       ) : null}
 
       {showConsumerShell && consumerTab === "schedule" ? (
-        tokens ? (
-          <ScrollView contentContainerStyle={styles.content}>
-            <Text style={styles.sectionTitle}>Schedule</Text>
-            {myAppointments.length === 0 ? (
-              <Text style={styles.empty}>You have no upcoming appointments yet.</Text>
-            ) : (
-              myAppointments.map((appointment) => (
-                <ConsumerAppointmentCard key={appointment.id} appointment={appointment} />
-              ))
-            )}
-          </ScrollView>
-        ) : (
-          <ScrollView contentContainerStyle={styles.content}>
-            <Text style={styles.sectionTitle}>Schedule</Text>
-            <Text style={styles.empty}>Sign in to view your appointments.</Text>
-            <Pressable
-              onPress={() => {
-                setPendingProfileAuth(true);
-                setShowAuthPrompt(true);
-              }}
-              style={styles.primaryButton}
-            >
-              <Text style={styles.primaryButtonText}>Sign in</Text>
-            </Pressable>
-          </ScrollView>
-        )
+        <ScheduleTabScreen
+          isActive={consumerTab === "schedule"}
+          isAuthenticated={tokens !== null}
+          onBookAgain={(businessId) => void run(() => openBusinessProfile(businessId))}
+          onSignIn={() => {
+            setPendingProfileAuth(true);
+            setShowAuthPrompt(true);
+          }}
+          request={api.request}
+        />
       ) : null}
 
       {showConsumerShell && consumerTab === "profile" ? (
@@ -627,7 +629,7 @@ export default function App() {
 
             void run(() => enterOwnerArea());
           }}
-          onRecentBusiness={(businessId) => void run(() => openBusinessProfile(businessId))}
+          onRecentBusiness={(businessId: string) => void run(() => openBusinessProfile(businessId))}
           onSignIn={() => {
             setPendingProfileAuth(true);
             setShowAuthPrompt(true);

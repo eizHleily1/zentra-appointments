@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "build": "expo export --platform android",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint \"App.tsx\" \"components/**/*.tsx\" \"screens/**/*.tsx\" \"lib/**/*.ts\"",
+    "lint": "eslint \"App.tsx\" \"components/**/*.tsx\" \"screens/**/*.tsx\" \"lib/**/*.ts\" \"lib/**/*.test.ts\"",
     "test": "jest"
   },
   "dependencies": {
@@ -39,6 +39,7 @@
   "jest": {
     "preset": "jest-expo",
     "testMatch": [
+      "**/*.test.ts",
       "**/*.test.tsx"
     ],
     "transformIgnorePatterns": [

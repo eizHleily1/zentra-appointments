@@ -1,28 +1,26 @@
 import { Button, Pressable, ScrollView, Text, View } from "react-native";
+import { AppointmentListCard } from "../../components/AppointmentListCard";
 import { getDateKeyInTimeZone, isAppointmentOnDate, sortAppointmentsChronologically } from "../../lib/appointments";
 import { formatTodayHeading } from "../../lib/formatters";
 import { styles } from "../../lib/styles";
-import type { ApiRequest, Appointment, Business, PublishReadiness, RunAction } from "../../lib/types";
-import { AppointmentCard } from "./AppointmentCard";
+import type { Appointment, Business, PublishReadiness } from "../../lib/types";
 
 export function TodayScreen({
   appointments,
   business,
   onBook,
   onOpenSettings,
+  onSelectAppointment,
   publishReadiness,
-  refreshAppointments,
-  request,
-  run
+  refreshAppointments
 }: {
   appointments: Appointment[];
   business: Business;
   onBook: () => void;
   onOpenSettings: () => void;
+  onSelectAppointment: (appointment: Appointment) => void;
   publishReadiness: PublishReadiness | null;
   refreshAppointments: () => Promise<void>;
-  request: ApiRequest;
-  run: RunAction;
 }) {
   const todayKey = getDateKeyInTimeZone(new Date(), business.timezone);
   const todayAppointments = sortAppointmentsChronologically(
@@ -79,14 +77,10 @@ export function TodayScreen({
         </View>
       ) : (
         todayAppointments.map((appointment) => (
-          <AppointmentCard
+          <AppointmentListCard
             key={appointment.id}
             appointment={appointment}
-            businessId={business.id}
-            compact
-            onActionComplete={refreshAppointments}
-            request={request}
-            run={run}
+            onPress={() => onSelectAppointment(appointment)}
             timezone={business.timezone}
           />
         ))

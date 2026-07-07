@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Controller, Get, Param, UseGuards } from "@nestjs/common";
 import type { AuthenticatedUser } from "../auth/authenticated-user";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -12,5 +12,13 @@ export class MeController {
   @Get("appointments")
   getMyAppointments(@CurrentUser() user: AuthenticatedUser) {
     return this.appointmentsService.findAppointmentsForLinkedUser(user.id);
+  }
+
+  @Get("appointments/:appointmentId")
+  getMyAppointmentDetails(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("appointmentId") appointmentId: string
+  ) {
+    return this.appointmentsService.getConsumerAppointmentDetails(user.id, appointmentId);
   }
 }

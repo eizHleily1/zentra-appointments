@@ -148,16 +148,31 @@ export class AppointmentsService {
 
       for (const appointment of businessAppointments) {
         if (appointment.clientId === client.id) {
-          appointments.push({
-            ...appointment,
-            businessName: business?.name ?? "Business",
-            businessTimezone: business?.timezone ?? "UTC"
-          });
+          appointments.push(toConsumerAppointment(appointment, business));
         }
       }
     }
 
     return appointments.sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+  }
+
+  async getConsumerAppointmentDetails(userId: string, appointmentId: string): Promise<ConsumerAppointment> {
+    const linkedClients = await this.clientsService.findClientsLinkedToUser(userId);
+
+    for (const client of linkedClients) {
+      const appointment = await this.appointmentRepository.findAppointmentByIdForBusiness(
+        client.businessId,
+        appointmentId
+      );
+
+      if (appointment && appointment.clientId === client.id) {
+        const business = await this.businessRepository.findBusinessById(client.businessId);
+
+        return toConsumerAppointment(appointment, business);
+      }
+    }
+
+    throw new NotFoundException("Appointment not found");
   }
 
   async findAppointmentsForBusiness(businessId: string, requesterUserId: string): Promise<Appointment[]> {
@@ -440,6 +455,16 @@ function getDateInTimeZone(date: Date, timeZone: string): string {
   }
 
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function toConsumerAppointment(appointment: Appointment, business: Business | null): ConsumerAppointment {
+  return {
+    ...appointment,
+    businessAddress: business?.address ?? null,
+    businessCity: business?.city ?? null,
+    businessName: business?.name ?? "Business",
+    businessTimezone: business?.timezone ?? "UTC"
+  };
 }
 
 function getNextDate(date: string): string {

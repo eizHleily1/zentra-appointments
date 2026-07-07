@@ -252,11 +252,29 @@ describe("DiscoveryController", () => {
 
     expect(myAppointments.body).toHaveLength(1);
     expect(myAppointments.body[0]).toMatchObject({
+      businessCity: null,
       businessName: "Prime Barber",
       clientDisplayName: "consumer",
       serviceName: "Haircut",
       staffDisplayName: "Staff Member"
     });
+
+    const appointmentId = myAppointments.body[0].id;
+    const detailsResponse = await request(app.getHttpServer())
+      .get(`/me/appointments/${appointmentId}`)
+      .set("authorization", `Bearer ${consumer.accessToken}`)
+      .expect(200);
+
+    expect(detailsResponse.body).toMatchObject({
+      businessName: "Prime Barber",
+      id: appointmentId,
+      serviceName: "Haircut"
+    });
+
+    await request(app.getHttpServer())
+      .get(`/me/appointments/${appointmentId}`)
+      .set("authorization", `Bearer ${otherConsumer.accessToken}`)
+      .expect(404);
 
     await request(app.getHttpServer()).get("/me/appointments").expect(401);
   });
