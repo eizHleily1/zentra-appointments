@@ -1,4 +1,5 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
+import { AppointmentsModule } from "../appointments/appointments.module";
 import { AuthModule } from "../auth/auth.module";
 import { BusinessesModule } from "../businesses/businesses.module";
 import { DatabaseModule } from "../database/database.module";
@@ -10,7 +11,7 @@ import { PostgresClientRepository } from "./postgres-client.repository";
 @Module({
   controllers: [ClientsController],
   exports: [CLIENT_REPOSITORY, ClientsService],
-  imports: [AuthModule, BusinessesModule, DatabaseModule],
+  imports: [AuthModule, BusinessesModule, DatabaseModule, forwardRef(() => AppointmentsModule)],
   providers: [
     PostgresClientRepository,
     ClientsService,

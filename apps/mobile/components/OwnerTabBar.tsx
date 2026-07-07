@@ -6,8 +6,7 @@ export function OwnerTabBar({ activeTab, onChange }: { activeTab: Tab; onChange:
   const tabs: { id: Tab; label: string }[] = [
     { id: "home", label: "Home" },
     { id: "appointments", label: "Appointments" },
-    { id: "services", label: "Services" },
-    { id: "staff", label: "Staff" },
+    { id: "clients", label: "Clients" },
     { id: "settings", label: "Settings" }
   ];
 

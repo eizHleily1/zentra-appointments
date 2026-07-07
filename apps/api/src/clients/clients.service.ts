@@ -1,6 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, forwardRef } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import {
+  APPOINTMENT_REPOSITORY,
+  type AppointmentRepository
+} from "../appointments/appointment.repository";
 import { BUSINESS_REPOSITORY, type BusinessRepository } from "../businesses/business.repository";
+import type { ClientDetailsResponse, ClientSummary } from "./client-responses";
 import { deriveClientDisplayNameFromEmail } from "./legacy-client-backfill";
 import { normalizeOptionalEmail, normalizePhoneNumber } from "./client-phone";
 import { CLIENT_REPOSITORY, type Client, type ClientRepository } from "./client.repository";
@@ -26,7 +31,9 @@ interface UpdateClientCommand {
 export class ClientsService {
   constructor(
     @Inject(BUSINESS_REPOSITORY) private readonly businessRepository: BusinessRepository,
-    @Inject(CLIENT_REPOSITORY) private readonly clientRepository: ClientRepository
+    @Inject(CLIENT_REPOSITORY) private readonly clientRepository: ClientRepository,
+    @Inject(forwardRef(() => APPOINTMENT_REPOSITORY))
+    private readonly appointmentRepository: AppointmentRepository
   ) {}
 
   async createClient(command: CreateClientCommand): Promise<Client> {
@@ -64,13 +71,31 @@ export class ClientsService {
     businessId: string,
     requesterUserId: string,
     search?: string
-  ): Promise<Client[]> {
+  ): Promise<ClientSummary[]> {
     await this.assertBusinessAccess(requesterUserId, businessId);
 
-    return this.clientRepository.findClientsForBusiness(businessId, { search });
+    const [clients, summaries] = await Promise.all([
+      this.clientRepository.findClientsForBusiness(businessId, { search }),
+      this.appointmentRepository.findAppointmentSummariesForBusiness(businessId)
+    ]);
+    const summaryByClientId = new Map(summaries.map((summary) => [summary.clientId, summary]));
+
+    return clients.map((client) => {
+      const summary = summaryByClientId.get(client.id);
+
+      return {
+        ...client,
+        lastAppointmentAt: summary?.lastAppointmentAt ?? null,
+        totalAppointments: summary?.totalAppointments ?? 0
+      };
+    });
   }
 
-  async getClientDetails(businessId: string, clientId: string, requesterUserId: string): Promise<Client> {
+  async getClientDetails(
+    businessId: string,
+    clientId: string,
+    requesterUserId: string
+  ): Promise<ClientDetailsResponse> {
     await this.assertBusinessAccess(requesterUserId, businessId);
 
     const client = await this.clientRepository.findClientByIdForBusiness(businessId, clientId);
@@ -79,7 +104,9 @@ export class ClientsService {
       throw new NotFoundException("Client not found");
     }
 
-    return client;
+    const appointments = await this.appointmentRepository.findAppointmentsForClient(businessId, clientId);
+
+    return { appointments, client };
   }
 
   async updateClient(command: UpdateClientCommand): Promise<Client> {

@@ -74,6 +74,11 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4
   },
+  cardFooterRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8
+  },
   cardTitle: {
     color: "#0f172a",
     fontSize: 16,
@@ -135,6 +140,19 @@ export const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center"
+  },
+  confirmCard: {
+    backgroundColor: "#fff7ed",
+    borderColor: "#fed7aa",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 16
+  },
+  confirmCardTitle: {
+    color: "#9a3412",
+    fontSize: 16,
+    fontWeight: "700"
   },
   checklist: {
     gap: 8,

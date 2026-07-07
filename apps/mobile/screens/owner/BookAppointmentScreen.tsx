@@ -20,6 +20,7 @@ export { buildBookAppointmentPayload } from "./bookAppointment";
 
 export function BookAppointmentScreen({
   businessId,
+  initialClient,
   onBack,
   refresh,
   request,
@@ -28,6 +29,11 @@ export function BookAppointmentScreen({
   staffMembers
 }: {
   businessId: string;
+  initialClient?: {
+    displayName: string;
+    id: string;
+    phoneNumber: string | null;
+  };
   onBack: () => void;
   refresh: () => Promise<void>;
   request: ApiRequest;
@@ -60,6 +66,19 @@ export function BookAppointmentScreen({
       setSelectedStaffMemberId(staffMembers[0].id);
     }
   }, [selectedStaffMemberId, staffMembers]);
+
+  useEffect(() => {
+    if (!initialClient) {
+      return;
+    }
+
+    setSelectedClientId(initialClient.id);
+    setSelectedClientLabel(
+      formatClientPhoneLabel(initialClient.phoneNumber)
+        ? `${initialClient.displayName} · ${formatClientPhoneLabel(initialClient.phoneNumber)}`
+        : initialClient.displayName
+    );
+  }, [initialClient]);
 
   useEffect(() => {
     if (!clientSelected || !selectedServiceId || !selectedStaffMemberId || !appointmentDate) {

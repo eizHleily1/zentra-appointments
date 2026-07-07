@@ -131,6 +131,54 @@ describe("ClientsController", () => {
     expect(deactivateResponse.body.active).toBe(false);
   });
 
+  it("returns client summaries and appointment history for owner management", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    const client = await createClient(app, owner.accessToken, setup.business.id, {
+      displayName: "Maria Lopez",
+      email: "maria@example.com",
+      phoneNumber: "+1 555-123-4567"
+    });
+
+    await createAppointment(app, owner.accessToken, setup.business.id, {
+      clientId: client.id,
+      serviceId: setup.businessService.id,
+      staffMemberId: setup.staffMember.id,
+      startTime: buildStartTime(TEST_DATE, "10:00")
+    });
+
+    const listResponse = await request(app.getHttpServer())
+      .get(`/businesses/${setup.business.id}/clients`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .expect(200);
+
+    expect(listResponse.body).toEqual([
+      expect.objectContaining({
+        displayName: "Maria Lopez",
+        email: "maria@example.com",
+        totalAppointments: 1
+      })
+    ]);
+    expect(listResponse.body[0].lastAppointmentAt).toEqual(expect.any(String));
+
+    const detailsResponse = await request(app.getHttpServer())
+      .get(`/businesses/${setup.business.id}/clients/${client.id}`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .expect(200);
+
+    expect(detailsResponse.body.client).toMatchObject({
+      displayName: "Maria Lopez",
+      email: "maria@example.com"
+    });
+    expect(detailsResponse.body.appointments).toHaveLength(1);
+    expect(detailsResponse.body.appointments[0]).toMatchObject({
+      clientDisplayName: "Maria Lopez",
+      clientPhoneNumber: "+1 555-123-4567",
+      serviceName: "Haircut"
+    });
+  });
+
   it("rejects duplicate active phone numbers within the same business", async () => {
     const owner = await registerAndGetIdentity(app, "owner@example.com");
     const business = await createBusiness(app, owner.accessToken, "Owner Business");

@@ -8,6 +8,8 @@ export function SettingsScreen({
   business,
   onBrowse,
   onOpenBusinessHours,
+  onOpenServices,
+  onOpenStaff,
   onPublish,
   onSaveCity,
   onSwitchBusiness,
@@ -16,6 +18,8 @@ export function SettingsScreen({
   business: Business;
   onBrowse: () => void;
   onOpenBusinessHours: () => void;
+  onOpenServices: () => void;
+  onOpenStaff: () => void;
   onPublish: () => void;
   onSaveCity: (city: string) => void;
   onSwitchBusiness: () => void;
@@ -78,6 +82,14 @@ export function SettingsScreen({
 
       <Pressable onPress={onOpenBusinessHours} style={styles.settingsAction}>
         <Text style={styles.settingsActionText}>Business hours</Text>
+      </Pressable>
+
+      <Pressable onPress={onOpenServices} style={styles.settingsAction}>
+        <Text style={styles.settingsActionText}>Services</Text>
+      </Pressable>
+
+      <Pressable onPress={onOpenStaff} style={styles.settingsAction}>
+        <Text style={styles.settingsActionText}>Staff</Text>
       </Pressable>
 
       <Pressable onPress={onSwitchBusiness} style={styles.settingsAction}>

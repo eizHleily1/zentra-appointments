@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 import App, {
   AppointmentCard,
   BookAppointmentScreen,
@@ -14,6 +14,10 @@ import { ExploreTabScreen } from "./screens/consumer/ExploreTabScreen";
 import { ConsumerAppointmentCard } from "./components/ConsumerAppointmentCard";
 import { BookingConfirmationScreen } from "./screens/consumer/BookingConfirmationScreen";
 import { formatServicePriceDisplay } from "./lib/formatters";
+import { ClientsScreen } from "./screens/owner/ClientsScreen";
+import { ClientDetailsScreen } from "./screens/owner/ClientDetailsScreen";
+import { ClientListCard } from "./components/ClientListCard";
+import { OwnerTabBar } from "./components/OwnerTabBar";
 
 const noopAsync = async () => {};
 
@@ -294,6 +298,105 @@ describe("formatters", () => {
 
     expect(label).not.toMatch(/2030-07-02T/);
     expect(label.length).toBeGreaterThan(0);
+  });
+});
+
+describe("ClientsScreen", () => {
+  it("renders search, add client, and empty state", () => {
+    const request = jest.fn().mockResolvedValue([]);
+
+    render(
+      <ClientsScreen
+        businessId="business-1"
+        onBookAppointment={() => undefined}
+        request={request}
+        run={noopAsync as never}
+        timezone="Asia/Amman"
+      />
+    );
+
+    expect(screen.getByText("Clients")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search by name, phone, or email")).toBeTruthy();
+    expect(screen.getByText("Add client")).toBeTruthy();
+    expect(screen.getByText("No clients yet")).toBeTruthy();
+  });
+});
+
+describe("ClientDetailsScreen", () => {
+  it("shows book appointment and deactivate confirmation", async () => {
+    const request = jest.fn().mockResolvedValue({
+      appointments: [],
+      client: {
+        active: true,
+        businessId: "business-1",
+        displayName: "Maria Lopez",
+        email: "maria@example.com",
+        id: "00000000-0000-4000-8000-000000000011",
+        linkedUserId: null,
+        phoneNumber: "+1 555-123-4567"
+      }
+    });
+
+    render(
+      <ClientDetailsScreen
+        businessId="business-1"
+        clientId="00000000-0000-4000-8000-000000000011"
+        onBack={() => undefined}
+        onBookAppointment={() => undefined}
+        onClientUpdated={() => undefined}
+        request={request}
+        run={noopAsync as never}
+        timezone="Asia/Amman"
+      />
+    );
+
+    expect(await screen.findByText("Book appointment")).toBeTruthy();
+    fireEvent.press(screen.getByText("Deactivate client"));
+
+    expect(screen.getByText("Deactivate Maria Lopez?")).toBeTruthy();
+    expect(screen.getByText("Cancel")).toBeTruthy();
+  });
+});
+
+describe("OwnerTabBar", () => {
+  it("shows four primary owner tabs", () => {
+    render(<OwnerTabBar activeTab="home" onChange={() => undefined} />);
+
+    expect(screen.getByText("Home")).toBeTruthy();
+    expect(screen.getByText("Appointments")).toBeTruthy();
+    expect(screen.getByText("Clients")).toBeTruthy();
+    expect(screen.getByText("Settings")).toBeTruthy();
+    expect(screen.queryByText("Services")).toBeNull();
+    expect(screen.queryByText("Staff")).toBeNull();
+  });
+});
+
+describe("ClientListCard", () => {
+  it("renders client details without UUIDs", () => {
+    render(
+      <ClientListCard
+        client={{
+          active: true,
+          businessId: "00000000-0000-4000-8000-000000000010",
+          displayName: "Maria Lopez",
+          email: "maria@example.com",
+          id: "00000000-0000-4000-8000-000000000011",
+          lastAppointmentAt: "2030-07-02T07:00:00.000Z",
+          linkedUserId: null,
+          phoneNumber: "+1 555-123-4567",
+          totalAppointments: 2
+        }}
+        onPress={() => undefined}
+        timezone="Asia/Amman"
+      />
+    );
+
+    expect(screen.getByText("Maria Lopez")).toBeTruthy();
+    expect(screen.getByText("+1 555-123-4567")).toBeTruthy();
+    expect(screen.getByText("maria@example.com")).toBeTruthy();
+    expect(screen.getByText("2 appointments")).toBeTruthy();
+    expect(screen.queryByText(/00000000-0000-4000-8000-000000000011/)).toBeNull();
+    expect(screen.queryByText(/2030-07-02T/)).toBeNull();
   });
 });
 

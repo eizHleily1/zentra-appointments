@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { Button, ScrollView, Text, TextInput, View } from "react-native";
+import { Button, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { styles } from "../../lib/styles";
 import type { ApiRequest, RunAction, StaffMember } from "../../lib/types";
 
 export function StaffScreen({
   businessId,
+  onBack,
   refresh,
   request,
   run,
   staffMembers
 }: {
   businessId: string;
+  onBack?: () => void;
   refresh: () => Promise<void>;
   request: ApiRequest;
   run: RunAction;
@@ -26,7 +28,12 @@ export function StaffScreen({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.contentWithTabs}>
+    <ScrollView contentContainerStyle={styles.content}>
+      {onBack ? (
+        <Pressable onPress={onBack} style={styles.linkButton}>
+          <Text style={styles.linkButtonText}>Back to settings</Text>
+        </Pressable>
+      ) : null}
       <Text style={styles.sectionTitle}>Staff</Text>
       <TextInput
         autoCapitalize="none"

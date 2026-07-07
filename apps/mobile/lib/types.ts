@@ -52,6 +52,16 @@ export interface Client {
   phoneNumber: string | null;
 }
 
+export interface ClientSummary extends Client {
+  lastAppointmentAt: string | null;
+  totalAppointments: number;
+}
+
+export interface ClientDetailsResponse {
+  appointments: Appointment[];
+  client: Client;
+}
+
 export interface Appointment {
   businessId: string;
   clientDisplayName: string;
@@ -123,9 +133,15 @@ export interface ConsumerAppointment extends Appointment {
   businessTimezone: string;
 }
 
-export type Tab = "home" | "appointments" | "services" | "staff" | "settings";
+export type Tab = "home" | "appointments" | "clients" | "settings";
 
-export type OverlayScreen = "book" | "business-hours" | null;
+export type OverlayScreen = "book" | "business-hours" | "services" | "staff" | null;
+
+export interface BookingInitialClient {
+  displayName: string;
+  id: string;
+  phoneNumber: string | null;
+}
 
 export type AppArea = "consumer" | "owner";
 

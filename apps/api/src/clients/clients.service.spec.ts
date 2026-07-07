@@ -1,18 +1,23 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import { APPOINTMENT_REPOSITORY } from "../appointments/appointment.repository";
+import { InMemoryAppointmentRepository } from "../../test/in-memory-appointment.repository";
 import { InMemoryBusinessRepository } from "../../test/in-memory-business.repository";
 import { InMemoryClientRepository } from "../../test/in-memory-client.repository";
 import { BUSINESS_REPOSITORY } from "../businesses/business.repository";
 import { CLIENT_REPOSITORY } from "./client.repository";
 import { ClientsService } from "./clients.service";
+import { zonedLocalToUtc } from "../appointments/scheduling";
 
 describe("ClientsService", () => {
+  let appointmentRepository: InMemoryAppointmentRepository;
   let businessRepository: InMemoryBusinessRepository;
   let clientRepository: InMemoryClientRepository;
   let service: ClientsService;
 
   beforeEach(async () => {
+    appointmentRepository = new InMemoryAppointmentRepository();
     businessRepository = new InMemoryBusinessRepository();
     clientRepository = new InMemoryClientRepository();
 
@@ -26,6 +31,10 @@ describe("ClientsService", () => {
         {
           provide: CLIENT_REPOSITORY,
           useValue: clientRepository
+        },
+        {
+          provide: APPOINTMENT_REPOSITORY,
+          useValue: appointmentRepository
         }
       ]
     }).compile();
@@ -137,6 +146,56 @@ describe("ClientsService", () => {
 
     await expect(service.findClientsForBusiness(business.id, "owner-user")).resolves.toEqual([]);
     await expect(service.getActiveClientForBooking(business.id, client.id)).rejects.toThrow(BadRequestException);
+  });
+
+  it("returns appointment summaries and history using snapshot data", async () => {
+    const business = await createBusiness(businessRepository);
+    const client = await service.createClient({
+      businessId: business.id,
+      displayName: "Maria Lopez",
+      phoneNumber: "+1 555-123-4567",
+      requesterUserId: "owner-user"
+    });
+
+    await appointmentRepository.createAppointment({
+      businessId: business.id,
+      clientDisplayName: "Maria Lopez",
+      clientId: client.id,
+      clientPhoneNumber: "+1 555-123-4567",
+      endsAt: zonedLocalToUtc("2030-07-02T10:30:00", "Asia/Amman"),
+      id: randomUUID(),
+      serviceDurationMinutes: 30,
+      serviceId: randomUUID(),
+      serviceName: "Haircut",
+      servicePrice: 15,
+      staffDisplayName: "Staff",
+      staffMemberId: randomUUID(),
+      startsAt: zonedLocalToUtc("2030-07-02T10:00:00", "Asia/Amman")
+    });
+
+    await service.updateClient({
+      businessId: business.id,
+      clientId: client.id,
+      displayName: "Maria L.",
+      phoneNumber: "+1 555-000-1111",
+      requesterUserId: "owner-user"
+    });
+
+    const summaries = await service.findClientsForBusiness(business.id, "owner-user");
+    expect(summaries).toEqual([
+      expect.objectContaining({
+        displayName: "Maria L.",
+        lastAppointmentAt: zonedLocalToUtc("2030-07-02T10:00:00", "Asia/Amman"),
+        totalAppointments: 1
+      })
+    ]);
+
+    const details = await service.getClientDetails(business.id, client.id, "owner-user");
+    expect(details.appointments).toHaveLength(1);
+    expect(details.appointments[0]).toMatchObject({
+      clientDisplayName: "Maria Lopez",
+      clientPhoneNumber: "+1 555-123-4567"
+    });
   });
 });
 

@@ -13,8 +13,10 @@ import type {
   Appointment,
   AuthTokens,
   BookingConfirmationDetails,
+  BookingInitialClient,
   Business,
   BusinessService,
+  Client,
   ClientScreen,
   ConsumerAppointment,
   DiscoveryCategoryId,
@@ -39,6 +41,7 @@ import { CreateBusinessScreen } from "./screens/owner/CreateBusinessScreen";
 import { ServicesScreen } from "./screens/owner/ServicesScreen";
 import { SettingsScreen } from "./screens/owner/SettingsScreen";
 import { StaffScreen } from "./screens/owner/StaffScreen";
+import { ClientsScreen } from "./screens/owner/ClientsScreen";
 import { TodayScreen } from "./screens/owner/TodayScreen";
 
 export { getDateKeyInTimeZone, isAppointmentOnDate, sortAppointmentsChronologically } from "./lib/appointments";
@@ -83,6 +86,7 @@ export default function App() {
   const [pendingProfileAuth, setPendingProfileAuth] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [overlayScreen, setOverlayScreen] = useState<OverlayScreen>(null);
+  const [bookingInitialClient, setBookingInitialClient] = useState<BookingInitialClient | null>(null);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [services, setServices] = useState<BusinessService[]>([]);
@@ -303,8 +307,27 @@ export default function App() {
     setConsumerTab("profile");
     setActiveTab("home");
     setOverlayScreen(null);
+    setBookingInitialClient(null);
     setMessage(null);
   }
+
+  const openBookAppointment = useCallback((client?: Client) => {
+    setBookingInitialClient(
+      client
+        ? {
+            displayName: client.displayName,
+            id: client.id,
+            phoneNumber: client.phoneNumber
+          }
+        : null
+    );
+    setOverlayScreen("book");
+  }, []);
+
+  const closeBookAppointment = useCallback(() => {
+    setOverlayScreen(null);
+    setBookingInitialClient(null);
+  }, []);
 
   const showOwnerApp = appArea === "owner" && tokens !== null && selectedBusiness !== null;
   const showOwnerBusinessPicker = appArea === "owner" && tokens !== null && selectedBusiness === null;
@@ -359,11 +382,34 @@ export default function App() {
       {showOwnerApp && overlayScreen === "book" ? (
         <BookAppointmentScreen
           businessId={selectedBusiness.id}
+          initialClient={bookingInitialClient ?? undefined}
+          onBack={closeBookAppointment}
+          refresh={refreshCurrentBusiness}
+          request={api.request}
+          run={run}
+          services={services}
+          staffMembers={staffMembers}
+        />
+      ) : null}
+
+      {showOwnerApp && overlayScreen === "services" ? (
+        <ServicesScreen
+          businessId={selectedBusiness.id}
           onBack={() => setOverlayScreen(null)}
           refresh={refreshCurrentBusiness}
           request={api.request}
           run={run}
           services={services}
+        />
+      ) : null}
+
+      {showOwnerApp && overlayScreen === "staff" ? (
+        <StaffScreen
+          businessId={selectedBusiness.id}
+          onBack={() => setOverlayScreen(null)}
+          refresh={refreshCurrentBusiness}
+          request={api.request}
+          run={run}
           staffMembers={staffMembers}
         />
       ) : null}
@@ -383,7 +429,7 @@ export default function App() {
             <TodayScreen
               appointments={appointments}
               business={selectedBusiness}
-              onBook={() => setOverlayScreen("book")}
+              onBook={() => openBookAppointment()}
               onOpenSettings={() => setActiveTab("settings")}
               publishReadiness={publishReadiness}
               refreshAppointments={() => run(refreshCurrentBusiness)}
@@ -396,7 +442,7 @@ export default function App() {
             <AllAppointmentsScreen
               appointments={appointments}
               businessId={selectedBusiness.id}
-              onBook={() => setOverlayScreen("book")}
+              onBook={() => openBookAppointment()}
               refreshAppointments={() => run(refreshCurrentBusiness)}
               request={api.request}
               run={run}
@@ -404,23 +450,13 @@ export default function App() {
             />
           ) : null}
 
-          {activeTab === "services" ? (
-            <ServicesScreen
+          {activeTab === "clients" ? (
+            <ClientsScreen
               businessId={selectedBusiness.id}
-              refresh={refreshCurrentBusiness}
+              onBookAppointment={openBookAppointment}
               request={api.request}
               run={run}
-              services={services}
-            />
-          ) : null}
-
-          {activeTab === "staff" ? (
-            <StaffScreen
-              businessId={selectedBusiness.id}
-              refresh={refreshCurrentBusiness}
-              request={api.request}
-              run={run}
-              staffMembers={staffMembers}
+              timezone={selectedBusiness.timezone}
             />
           ) : null}
 
@@ -432,6 +468,8 @@ export default function App() {
                 setConsumerTab("explore");
               }}
               onOpenBusinessHours={() => setOverlayScreen("business-hours")}
+              onOpenServices={() => setOverlayScreen("services")}
+              onOpenStaff={() => setOverlayScreen("staff")}
               onPublish={() =>
                 void run(async () => {
                   const published = await api.request<Business>(`/businesses/${selectedBusiness.id}/publish`, {

@@ -42,10 +42,18 @@ export interface CreateAppointmentInput {
   startsAt: Date;
 }
 
+export interface ClientAppointmentSummary {
+  clientId: string;
+  lastAppointmentAt: Date | null;
+  totalAppointments: number;
+}
+
 export interface AppointmentRepository {
   createAppointment(input: CreateAppointmentInput): Promise<Appointment>;
   findAppointmentByIdForBusiness(businessId: string, appointmentId: string): Promise<Appointment | null>;
+  findAppointmentSummariesForBusiness(businessId: string): Promise<ClientAppointmentSummary[]>;
   findAppointmentsForBusiness(businessId: string): Promise<Appointment[]>;
+  findAppointmentsForClient(businessId: string, clientId: string): Promise<Appointment[]>;
   findAppointmentsForStaffMemberBetween(
     businessId: string,
     staffMemberId: string,

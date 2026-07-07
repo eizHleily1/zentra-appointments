@@ -114,3 +114,36 @@ export function formatTodayHeading(timeZone: string, now = new Date()): string {
     year: "numeric"
   }).format(now);
 }
+
+export function formatClientEmailLabel(email: string | null | undefined): string | null {
+  if (!email || email.trim().length === 0) {
+    return null;
+  }
+
+  return email.trim();
+}
+
+export function formatLinkedAccountStatus(linkedUserId: string | null | undefined): string {
+  return linkedUserId ? "Linked to Zentra account" : "No linked account";
+}
+
+export function formatAppointmentCountLabel(totalAppointments: number): string {
+  if (totalAppointments === 1) {
+    return "1 appointment";
+  }
+
+  return `${totalAppointments} appointments`;
+}
+
+export function formatLastAppointmentLabel(lastAppointmentAt: string | null | undefined, timeZone: string): string {
+  if (!lastAppointmentAt) {
+    return "No appointments yet";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    timeZone,
+    year: "numeric"
+  }).format(new Date(lastAppointmentAt));
+}

@@ -4,14 +4,12 @@ import { DatabaseService } from "../database/database.service";
 
 import type { AppointmentStatus } from "./appointment-status";
 
-import type { Appointment, AppointmentRepository, CreateAppointmentInput } from "./appointment.repository";
+import type { Appointment, AppointmentRepository, ClientAppointmentSummary, CreateAppointmentInput } from "./appointment.repository";
 
 
 
 interface AppointmentRow {
-
   business_id: string;
-
   client_display_name: string;
 
   client_id: string;
@@ -41,10 +39,13 @@ interface AppointmentRow {
   status: AppointmentStatus;
 
   updated_at: Date;
-
 }
 
-
+interface ClientAppointmentSummaryRow {
+  client_id: string;
+  last_appointment_at: Date | null;
+  total_appointments: number;
+}
 
 @Injectable()
 
@@ -151,6 +152,42 @@ export class PostgresAppointmentRepository implements AppointmentRepository {
 
 
     return result.rows.map(mapAppointment);
+  }
+
+  async findAppointmentsForClient(businessId: string, clientId: string): Promise<Appointment[]> {
+    const result = await this.databaseService.query<AppointmentRow>(
+      `
+        SELECT *
+        FROM appointments
+        WHERE business_id = $1
+          AND client_id = $2
+        ORDER BY starts_at ASC, created_at ASC
+      `,
+      [businessId, clientId]
+    );
+
+    return result.rows.map(mapAppointment);
+  }
+
+  async findAppointmentSummariesForBusiness(businessId: string): Promise<ClientAppointmentSummary[]> {
+    const result = await this.databaseService.query<ClientAppointmentSummaryRow>(
+      `
+        SELECT
+          client_id,
+          COUNT(*)::int AS total_appointments,
+          MAX(starts_at) AS last_appointment_at
+        FROM appointments
+        WHERE business_id = $1
+        GROUP BY client_id
+      `,
+      [businessId]
+    );
+
+    return result.rows.map((row) => ({
+      clientId: row.client_id,
+      lastAppointmentAt: row.last_appointment_at,
+      totalAppointments: row.total_appointments
+    }));
   }
 
   async findAppointmentsForStaffMemberBetween(

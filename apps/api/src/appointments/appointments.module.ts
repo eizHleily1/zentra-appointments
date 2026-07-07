@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { BusinessesModule } from "../businesses/businesses.module";
 import { DatabaseModule } from "../database/database.module";
@@ -13,8 +13,8 @@ import { SchedulingController } from "./scheduling.controller";
 
 @Module({
   controllers: [AppointmentsController, SchedulingController],
-  exports: [AppointmentsService],
-  imports: [AuthModule, BusinessesModule, ClientsModule, DatabaseModule, ServicesModule, StaffModule],
+  exports: [APPOINTMENT_REPOSITORY, AppointmentsService],
+  imports: [AuthModule, BusinessesModule, forwardRef(() => ClientsModule), DatabaseModule, ServicesModule, StaffModule],
   providers: [
     AppointmentsService,
     PostgresAppointmentRepository,

@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { Button, ScrollView, Text, TextInput, View } from "react-native";
+import { Button, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { formatServicePriceLabel } from "../../lib/formatters";
 import { styles } from "../../lib/styles";
 import type { ApiRequest, BusinessService, RunAction } from "../../lib/types";
 
 export function ServicesScreen({
   businessId,
+  onBack,
   refresh,
   request,
   run,
   services
 }: {
   businessId: string;
+  onBack?: () => void;
   refresh: () => Promise<void>;
   request: ApiRequest;
   run: RunAction;
@@ -57,7 +59,12 @@ export function ServicesScreen({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.contentWithTabs}>
+    <ScrollView contentContainerStyle={styles.content}>
+      {onBack ? (
+        <Pressable onPress={onBack} style={styles.linkButton}>
+          <Text style={styles.linkButtonText}>Back to settings</Text>
+        </Pressable>
+      ) : null}
       <Text style={styles.sectionTitle}>Services</Text>
       <TextInput onChangeText={setName} placeholder="Service name" style={styles.input} value={name} />
       <TextInput onChangeText={setDescription} placeholder="Description" style={styles.input} value={description} />

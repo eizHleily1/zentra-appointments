@@ -1,6 +1,6 @@
 import type { AppointmentStatus } from "../src/appointments/appointment-status";
 
-import type { Appointment, AppointmentRepository, CreateAppointmentInput } from "../src/appointments/appointment.repository";
+import type { Appointment, AppointmentRepository, ClientAppointmentSummary, CreateAppointmentInput } from "../src/appointments/appointment.repository";
 
 export class InMemoryAppointmentRepository implements AppointmentRepository {
   private readonly appointments = new Map<string, Appointment>();
@@ -32,6 +32,44 @@ export class InMemoryAppointmentRepository implements AppointmentRepository {
 
   async findAppointmentsForBusiness(businessId: string): Promise<Appointment[]> {
     return Array.from(this.appointments.values()).filter((appointment) => appointment.businessId === businessId);
+  }
+
+  async findAppointmentsForClient(businessId: string, clientId: string): Promise<Appointment[]> {
+    return Array.from(this.appointments.values())
+      .filter((appointment) => appointment.businessId === businessId && appointment.clientId === clientId)
+      .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+  }
+
+  async findAppointmentSummariesForBusiness(businessId: string): Promise<ClientAppointmentSummary[]> {
+    const summaries = new Map<string, ClientAppointmentSummary>();
+
+    for (const appointment of this.appointments.values()) {
+      if (appointment.businessId !== businessId) {
+        continue;
+      }
+
+      const existing = summaries.get(appointment.clientId);
+
+      if (!existing) {
+        summaries.set(appointment.clientId, {
+          clientId: appointment.clientId,
+          lastAppointmentAt: appointment.startsAt,
+          totalAppointments: 1
+        });
+        continue;
+      }
+
+      summaries.set(appointment.clientId, {
+        clientId: appointment.clientId,
+        lastAppointmentAt:
+          !existing.lastAppointmentAt || appointment.startsAt.getTime() > existing.lastAppointmentAt.getTime()
+            ? appointment.startsAt
+            : existing.lastAppointmentAt,
+        totalAppointments: existing.totalAppointments + 1
+      });
+    }
+
+    return Array.from(summaries.values());
   }
 
   async findAppointmentsForStaffMemberBetween(
