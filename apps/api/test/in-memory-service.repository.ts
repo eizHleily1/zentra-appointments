@@ -1,9 +1,11 @@
 import type {
   BusinessService,
   CreateServiceInput,
+  FindActiveServiceByNameInput,
   ServiceRepository,
   UpdateServiceInput
 } from "../src/services/service.repository";
+import { normalizeServiceNameForComparison } from "../src/services/service-name";
 
 export class InMemoryServiceRepository implements ServiceRepository {
   private readonly services = new Map<string, BusinessService>();
@@ -27,7 +29,21 @@ export class InMemoryServiceRepository implements ServiceRepository {
   }
 
   async findServicesForBusiness(businessId: string): Promise<BusinessService[]> {
-    return Array.from(this.services.values()).filter((service) => service.businessId === businessId);
+    return Array.from(this.services.values()).filter(
+      (service) => service.businessId === businessId && service.active
+    );
+  }
+
+  async findActiveServiceByNormalizedName(input: FindActiveServiceByNameInput): Promise<BusinessService | null> {
+    return (
+      Array.from(this.services.values()).find(
+        (service) =>
+          service.businessId === input.businessId &&
+          service.active &&
+          normalizeServiceNameForComparison(service.name) === input.normalizedName &&
+          service.id !== input.excludeServiceId
+      ) ?? null
+    );
   }
 
   async findServiceByIdForBusiness(businessId: string, serviceId: string): Promise<BusinessService | null> {
@@ -56,7 +72,7 @@ export class InMemoryServiceRepository implements ServiceRepository {
       description: input.description ?? service.description,
       durationMinutes: input.durationMinutes ?? service.durationMinutes,
       name: input.name ?? service.name,
-      price: input.price ?? service.price,
+      price: input.price !== undefined ? input.price : service.price,
       updatedAt: new Date()
     };
 

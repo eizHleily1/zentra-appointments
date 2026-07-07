@@ -35,7 +35,9 @@ export class InMemoryStaffRepository implements StaffRepository {
   }
 
   async findStaffMembersForBusiness(businessId: string): Promise<StaffMember[]> {
-    return Array.from(this.staffMembers.values()).filter((staffMember) => staffMember.businessId === businessId);
+    return Array.from(this.staffMembers.values()).filter(
+      (staffMember) => staffMember.businessId === businessId && staffMember.active
+    );
   }
 
   async findStaffMemberByIdForBusiness(businessId: string, staffMemberId: string): Promise<StaffMember | null> {

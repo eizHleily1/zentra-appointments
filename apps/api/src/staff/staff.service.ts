@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { AUTH_REPOSITORY, type AuthRepository } from "../auth/auth.repository";
+import { normalizeEmail } from "../auth/auth.service";
 import { BUSINESS_REPOSITORY, type BusinessRepository } from "../businesses/business.repository";
 import { STAFF_REPOSITORY, type StaffMember, type StaffRepository } from "./staff.repository";
 
@@ -7,7 +9,8 @@ interface CreateStaffMemberCommand {
   businessId: string;
   displayName: string;
   requesterUserId: string;
-  userId: string;
+  userEmail?: string;
+  userId?: string;
 }
 
 interface UpdateStaffMemberCommand {
@@ -20,6 +23,7 @@ interface UpdateStaffMemberCommand {
 @Injectable()
 export class StaffService {
   constructor(
+    @Inject(AUTH_REPOSITORY) private readonly authRepository: AuthRepository,
     @Inject(BUSINESS_REPOSITORY) private readonly businessRepository: BusinessRepository,
     @Inject(STAFF_REPOSITORY) private readonly staffRepository: StaffRepository
   ) {}
@@ -27,12 +31,14 @@ export class StaffService {
   async createStaffMember(command: CreateStaffMemberCommand): Promise<StaffMember> {
     await this.assertBusinessAccess(command.requesterUserId, command.businessId);
 
+    const userId = await this.resolveStaffUserId(command);
+
     try {
       return await this.staffRepository.createStaffMember({
         businessId: command.businessId,
         displayName: normalizeRequiredText(command.displayName, "Staff display name is required"),
         id: randomUUID(),
-        userId: command.userId
+        userId
       });
     } catch (error) {
       if (isPostgresUniqueViolation(error)) {
@@ -100,6 +106,24 @@ export class StaffService {
     }
 
     return staffMember;
+  }
+
+  private async resolveStaffUserId(command: CreateStaffMemberCommand): Promise<string> {
+    if (command.userId) {
+      return command.userId;
+    }
+
+    if (!command.userEmail) {
+      throw new BadRequestException("Provide the staff member's account email");
+    }
+
+    const account = await this.authRepository.findAccountByEmail(normalizeEmail(command.userEmail));
+
+    if (!account) {
+      throw new BadRequestException("No account found with this email. Ask the staff member to register first");
+    }
+
+    return account.id;
   }
 
   private async assertBusinessAccess(userId: string, businessId: string): Promise<void> {

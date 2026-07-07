@@ -4,11 +4,14 @@ import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { AUTH_REPOSITORY } from "../src/auth/auth.repository";
 import { PostgresAuthRepository } from "../src/auth/postgres-auth.repository";
+import { BUSINESS_HOURS_REPOSITORY } from "../src/businesses/business-hours.repository";
+import { PostgresBusinessHoursRepository } from "../src/businesses/postgres-business-hours.repository";
 import { BUSINESS_REPOSITORY } from "../src/businesses/business.repository";
 import { PostgresBusinessRepository } from "../src/businesses/postgres-business.repository";
 import { PostgresStaffRepository } from "../src/staff/postgres-staff.repository";
 import { STAFF_REPOSITORY } from "../src/staff/staff.repository";
 import { InMemoryAuthRepository } from "./in-memory-auth.repository";
+import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 import { InMemoryStaffRepository } from "./in-memory-staff.repository";
 
@@ -29,6 +32,10 @@ describe("StaffController", () => {
       .overrideProvider(BUSINESS_REPOSITORY)
       .useValue(new InMemoryBusinessRepository())
       .overrideProvider(PostgresBusinessRepository)
+      .useValue({})
+      .overrideProvider(BUSINESS_HOURS_REPOSITORY)
+      .useValue(new InMemoryBusinessHoursRepository())
+      .overrideProvider(PostgresBusinessHoursRepository)
       .useValue({})
       .overrideProvider(STAFF_REPOSITORY)
       .useValue(staffRepository)
@@ -133,6 +140,26 @@ describe("StaffController", () => {
       .get(`/businesses/${secondBusiness.id}/staff/${staffMember.id}`)
       .set("authorization", `Bearer ${owner.accessToken}`)
       .expect(404);
+  });
+
+  it("creates staff members by account email", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "barber@example.com");
+    const business = await createBusiness(app, owner.accessToken, "Owner Business");
+
+    const createResponse = await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/staff`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .send({ displayName: "Barber", userEmail: "Barber@Example.com" })
+      .expect(201);
+
+    expect(createResponse.body.userId).toBe(staffUser.userId);
+
+    await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/staff`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .send({ displayName: "Ghost", userEmail: "missing@example.com" })
+      .expect(400);
   });
 
   it("rejects invalid staff input and unauthenticated creation", async () => {

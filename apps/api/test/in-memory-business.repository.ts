@@ -16,7 +16,9 @@ export class InMemoryBusinessRepository implements BusinessRepository {
   ): Promise<{ business: Business; membership: Membership }> {
     const now = new Date();
     const business: Business = {
+      address: null,
       businessType: input.businessType,
+      city: null,
       createdAt: now,
       id: input.id,
       initialOwnerUserId: input.initialOwnerUserId,
@@ -50,6 +52,45 @@ export class InMemoryBusinessRepository implements BusinessRepository {
     return Array.from(this.businesses.values()).filter((business) => businessIds.has(business.id));
   }
 
+  async findActiveBusinesses(
+    options?: import("../src/businesses/business.repository").FindActiveBusinessesOptions
+  ): Promise<Business[]> {
+    const search = options?.search?.trim().toLowerCase();
+    const businessTypes = options?.businessTypes;
+
+    return Array.from(this.businesses.values())
+      .filter((business) => {
+        if (business.status !== "ACTIVE") {
+          return false;
+        }
+
+        if (businessTypes && businessTypes.length > 0 && !businessTypes.includes(business.businessType)) {
+          return false;
+        }
+
+        if (search && !business.name.toLowerCase().includes(search)) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async findActiveBusinessById(businessId: string): Promise<Business | null> {
+    const business = this.businesses.get(businessId);
+
+    if (!business || business.status !== "ACTIVE") {
+      return null;
+    }
+
+    return business;
+  }
+
+  async findBusinessById(businessId: string): Promise<Business | null> {
+    return this.businesses.get(businessId) ?? null;
+  }
+
   async findBusinessByIdForUser(businessId: string, userId: string): Promise<Business | null> {
     const membership = await this.findMembership(userId, businessId);
 
@@ -77,7 +118,9 @@ export class InMemoryBusinessRepository implements BusinessRepository {
 
     const updatedBusiness: Business = {
       ...business,
+      address: input.address === undefined ? business.address : input.address,
       businessType: input.businessType ?? business.businessType,
+      city: input.city === undefined ? business.city : input.city,
       name: input.name ?? business.name,
       timezone: input.timezone ?? business.timezone,
       updatedAt: new Date()
@@ -104,6 +147,23 @@ export class InMemoryBusinessRepository implements BusinessRepository {
     return deactivatedBusiness;
   }
 
+  async publishBusiness(id: string): Promise<Business | null> {
+    const business = this.businesses.get(id);
+
+    if (!business || business.status !== "PENDING_ONBOARDING") {
+      return null;
+    }
+
+    const publishedBusiness: Business = {
+      ...business,
+      status: "ACTIVE",
+      updatedAt: new Date()
+    };
+
+    this.businesses.set(id, publishedBusiness);
+    return publishedBusiness;
+  }
+
   addMembership(userId: string, businessId: string, role: MembershipRole): void {
     const now = new Date();
     const membership: Membership = {
@@ -116,6 +176,14 @@ export class InMemoryBusinessRepository implements BusinessRepository {
     };
 
     this.memberships.set(membership.id, membership);
+  }
+
+  setBusinessStatus(businessId: string, status: Business["status"]): void {
+    const business = this.businesses.get(businessId);
+
+    if (business) {
+      this.businesses.set(businessId, { ...business, status, updatedAt: new Date() });
+    }
   }
 
   getBusinesses(): Business[] {

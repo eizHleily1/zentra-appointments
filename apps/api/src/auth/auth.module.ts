@@ -25,6 +25,6 @@ import { TokenService } from "./token.service";
       useExisting: PostgresAuthRepository
     }
   ],
-  exports: [JwtAuthGuard, JwtModule]
+  exports: [AUTH_REPOSITORY, JwtAuthGuard, JwtModule]
 })
 export class AuthModule {}

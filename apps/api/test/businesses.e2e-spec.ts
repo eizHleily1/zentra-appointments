@@ -4,9 +4,12 @@ import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { AUTH_REPOSITORY } from "../src/auth/auth.repository";
 import { PostgresAuthRepository } from "../src/auth/postgres-auth.repository";
+import { BUSINESS_HOURS_REPOSITORY } from "../src/businesses/business-hours.repository";
+import { PostgresBusinessHoursRepository } from "../src/businesses/postgres-business-hours.repository";
 import { BUSINESS_REPOSITORY } from "../src/businesses/business.repository";
 import { PostgresBusinessRepository } from "../src/businesses/postgres-business.repository";
 import { InMemoryAuthRepository } from "./in-memory-auth.repository";
+import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 
 describe("BusinessesController", () => {
@@ -26,6 +29,10 @@ describe("BusinessesController", () => {
       .overrideProvider(BUSINESS_REPOSITORY)
       .useValue(businessRepository)
       .overrideProvider(PostgresBusinessRepository)
+      .useValue({})
+      .overrideProvider(BUSINESS_HOURS_REPOSITORY)
+      .useValue(new InMemoryBusinessHoursRepository())
+      .overrideProvider(PostgresBusinessHoursRepository)
       .useValue({})
       .compile();
 
@@ -136,6 +143,52 @@ describe("BusinessesController", () => {
       .set("authorization", `Bearer ${accessToken}`)
       .send({ businessType: "RESTAURANT", name: "Invalid Type", timezone: "Asia/Amman" })
       .expect(400);
+  });
+
+  it("rejects invalid IANA timezones and accepts Asia/Jerusalem", async () => {
+    const accessToken = await registerAndGetAccessToken(app, "owner@example.com");
+
+    const invalidResponse = await request(app.getHttpServer())
+      .post("/businesses")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ businessType: "BARBER", name: "Bad Timezone", timezone: "Asia/Israel" })
+      .expect(400);
+
+    expect(invalidResponse.body.message).toContain("not a valid timezone");
+
+    const validResponse = await request(app.getHttpServer())
+      .post("/businesses")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ businessType: "BARBER", name: "Jerusalem Barber", timezone: "Asia/Jerusalem" })
+      .expect(201);
+
+    expect(validResponse.body.timezone).toBe("Asia/Jerusalem");
+  });
+
+  it("reports publish readiness and rejects publish until requirements are met", async () => {
+    const ownerToken = await registerAndGetAccessToken(app, "publish@example.com");
+    const business = await createBusiness(app, ownerToken, "Publish Barber");
+
+    const readinessResponse = await request(app.getHttpServer())
+      .get(`/businesses/${business.id}/publish-readiness`)
+      .set("authorization", `Bearer ${ownerToken}`)
+      .expect(200);
+
+    expect(readinessResponse.body.canPublish).toBe(false);
+    expect(readinessResponse.body.missingSteps.length).toBeGreaterThan(0);
+
+    await request(app.getHttpServer())
+      .patch(`/businesses/${business.id}`)
+      .set("authorization", `Bearer ${ownerToken}`)
+      .send({ city: "Amman" })
+      .expect(200);
+
+    const publishResponse = await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/publish`)
+      .set("authorization", `Bearer ${ownerToken}`)
+      .expect(400);
+
+    expect(String(publishResponse.body.message)).toMatch(/service|staff/i);
   });
 });
 

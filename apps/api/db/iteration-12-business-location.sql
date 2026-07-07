@@ -1,0 +1,5 @@
+ALTER TABLE tenants
+ADD COLUMN IF NOT EXISTS address text;
+
+ALTER TABLE tenants
+ADD COLUMN IF NOT EXISTS city text;

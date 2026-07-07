@@ -4,11 +4,14 @@ import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { AUTH_REPOSITORY } from "../src/auth/auth.repository";
 import { PostgresAuthRepository } from "../src/auth/postgres-auth.repository";
+import { BUSINESS_HOURS_REPOSITORY } from "../src/businesses/business-hours.repository";
+import { PostgresBusinessHoursRepository } from "../src/businesses/postgres-business-hours.repository";
 import { BUSINESS_REPOSITORY } from "../src/businesses/business.repository";
 import { PostgresBusinessRepository } from "../src/businesses/postgres-business.repository";
 import { SERVICE_REPOSITORY } from "../src/services/service.repository";
 import { PostgresServiceRepository } from "../src/services/postgres-service.repository";
 import { InMemoryAuthRepository } from "./in-memory-auth.repository";
+import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 import { InMemoryServiceRepository } from "./in-memory-service.repository";
 
@@ -29,6 +32,10 @@ describe("ServicesController", () => {
       .overrideProvider(BUSINESS_REPOSITORY)
       .useValue(new InMemoryBusinessRepository())
       .overrideProvider(PostgresBusinessRepository)
+      .useValue({})
+      .overrideProvider(BUSINESS_HOURS_REPOSITORY)
+      .useValue(new InMemoryBusinessHoursRepository())
+      .overrideProvider(PostgresBusinessHoursRepository)
       .useValue({})
       .overrideProvider(SERVICE_REPOSITORY)
       .useValue(serviceRepository)
@@ -160,6 +167,64 @@ describe("ServicesController", () => {
       .send({ description: "Invalid", durationMinutes: 0, name: "Invalid", price: -1 })
       .expect(400);
   });
+
+  it("rejects duplicate active service names and allows reuse after deactivation", async () => {
+    const accessToken = await registerAndGetAccessToken(app, "owner@example.com");
+    const business = await createBusiness(app, accessToken, "Owner Business");
+    const createdService = await createService(app, accessToken, business.id, {
+      description: "Classic haircut",
+      durationMinutes: 30,
+      name: "Haircut",
+      price: 15
+    });
+
+    await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/services`)
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ description: "Duplicate", durationMinutes: 30, name: " haircut " })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/services/${createdService.id}/deactivate`)
+      .set("authorization", `Bearer ${accessToken}`)
+      .expect(201);
+
+    const listAfterDeactivate = await request(app.getHttpServer())
+      .get(`/businesses/${business.id}/services`)
+      .set("authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(listAfterDeactivate.body).toEqual([]);
+
+    const recreatedService = await createService(app, accessToken, business.id, {
+      description: "New haircut",
+      durationMinutes: 30,
+      name: "Haircut",
+      price: 20
+    });
+
+    expect(recreatedService).toMatchObject({
+      active: true,
+      name: "Haircut",
+      price: 20
+    });
+  });
+
+  it("allows creating a service without a price", async () => {
+    const accessToken = await registerAndGetAccessToken(app, "owner@example.com");
+    const business = await createBusiness(app, accessToken, "Owner Business");
+
+    const response = await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/services`)
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ description: "Free consultation", durationMinutes: 30, name: "Consultation" })
+      .expect(201);
+
+    expect(response.body).toMatchObject({
+      name: "Consultation",
+      price: null
+    });
+  });
 });
 
 async function registerAndGetAccessToken(app: INestApplication, email: string): Promise<string> {
@@ -186,7 +251,7 @@ async function createService(
   app: INestApplication,
   accessToken: string,
   businessId: string,
-  body: { description: string; durationMinutes: number; name: string; price: number }
+  body: { description: string; durationMinutes: number; name: string; price?: number }
 ) {
   const response = await request(app.getHttpServer())
     .post(`/businesses/${businessId}/services`)

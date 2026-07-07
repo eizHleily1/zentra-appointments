@@ -1,24 +1,32 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import { AUTH_REPOSITORY } from "../auth/auth.repository";
 import { BUSINESS_REPOSITORY } from "../businesses/business.repository";
+import { InMemoryAuthRepository } from "../../test/in-memory-auth.repository";
 import { InMemoryBusinessRepository } from "../../test/in-memory-business.repository";
 import { InMemoryStaffRepository } from "../../test/in-memory-staff.repository";
 import { STAFF_REPOSITORY } from "./staff.repository";
 import { StaffService } from "./staff.service";
 
 describe("StaffService", () => {
+  let authRepository: InMemoryAuthRepository;
   let businessRepository: InMemoryBusinessRepository;
   let service: StaffService;
   let staffRepository: InMemoryStaffRepository;
 
   beforeEach(async () => {
+    authRepository = new InMemoryAuthRepository();
     businessRepository = new InMemoryBusinessRepository();
     staffRepository = new InMemoryStaffRepository();
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         StaffService,
+        {
+          provide: AUTH_REPOSITORY,
+          useValue: authRepository
+        },
         {
           provide: BUSINESS_REPOSITORY,
           useValue: businessRepository
@@ -139,6 +147,50 @@ describe("StaffService", () => {
         displayName: "   ",
         requesterUserId: "owner-user",
         userId: "staff-user"
+      })
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it("creates a staff member by account email", async () => {
+    const business = await createBusinessForUser(businessRepository, "owner-user");
+    const account = await authRepository.createAccount({
+      email: "barber@example.com",
+      id: randomUUID(),
+      passwordHash: "hash",
+      status: "ACTIVE"
+    });
+
+    const staffMember = await service.createStaffMember({
+      businessId: business.id,
+      displayName: "Barber",
+      requesterUserId: "owner-user",
+      userEmail: " Barber@Example.com "
+    });
+
+    expect(staffMember.userId).toBe(account.id);
+  });
+
+  it("rejects staff creation when neither userId nor email is provided", async () => {
+    const business = await createBusinessForUser(businessRepository, "owner-user");
+
+    await expect(
+      service.createStaffMember({
+        businessId: business.id,
+        displayName: "Barber",
+        requesterUserId: "owner-user"
+      })
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it("rejects staff creation for an unknown email", async () => {
+    const business = await createBusinessForUser(businessRepository, "owner-user");
+
+    await expect(
+      service.createStaffMember({
+        businessId: business.id,
+        displayName: "Barber",
+        requesterUserId: "owner-user",
+        userEmail: "missing@example.com"
       })
     ).rejects.toThrow(BadRequestException);
   });

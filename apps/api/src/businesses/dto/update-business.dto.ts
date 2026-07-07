@@ -13,6 +13,13 @@ export class UpdateBusinessDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(1)
   timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string | null;
+
+  @IsOptional()
+  @IsString()
+  city?: string | null;
 }

@@ -3,6 +3,7 @@ import { DatabaseService } from "../database/database.service";
 import type {
   BusinessService,
   CreateServiceInput,
+  FindActiveServiceByNameInput,
   ServiceRepository,
   UpdateServiceInput
 } from "./service.repository";
@@ -15,7 +16,7 @@ interface ServiceRow {
   duration_minutes: number;
   id: string;
   name: string;
-  price: string;
+  price: string | null;
   updated_at: Date;
 }
 
@@ -38,11 +39,28 @@ export class PostgresServiceRepository implements ServiceRepository {
 
   async findServicesForBusiness(businessId: string): Promise<BusinessService[]> {
     const result = await this.databaseService.query<ServiceRow>(
-      "SELECT * FROM services WHERE business_id = $1 ORDER BY created_at ASC",
+      "SELECT * FROM services WHERE business_id = $1 AND active = true ORDER BY created_at ASC",
       [businessId]
     );
 
     return result.rows.map(mapService);
+  }
+
+  async findActiveServiceByNormalizedName(input: FindActiveServiceByNameInput): Promise<BusinessService | null> {
+    const result = await this.databaseService.query<ServiceRow>(
+      `
+        SELECT *
+        FROM services
+        WHERE business_id = $1
+          AND active = true
+          AND lower(btrim(name)) = $2
+          AND ($3::uuid IS NULL OR id <> $3)
+        LIMIT 1
+      `,
+      [input.businessId, input.normalizedName, input.excludeServiceId ?? null]
+    );
+
+    return result.rows[0] ? mapService(result.rows[0]) : null;
   }
 
   async findServiceByIdForBusiness(businessId: string, serviceId: string): Promise<BusinessService | null> {
@@ -59,25 +77,44 @@ export class PostgresServiceRepository implements ServiceRepository {
     serviceId: string,
     input: UpdateServiceInput
   ): Promise<BusinessService | null> {
+    const assignments: string[] = [];
+    const values: unknown[] = [businessId, serviceId];
+    let index = 3;
+
+    if (input.name !== undefined) {
+      assignments.push(`name = $${index++}`);
+      values.push(input.name);
+    }
+
+    if (input.description !== undefined) {
+      assignments.push(`description = $${index++}`);
+      values.push(input.description);
+    }
+
+    if (input.durationMinutes !== undefined) {
+      assignments.push(`duration_minutes = $${index++}`);
+      values.push(input.durationMinutes);
+    }
+
+    if (input.price !== undefined) {
+      assignments.push(`price = $${index++}`);
+      values.push(input.price);
+    }
+
+    if (assignments.length === 0) {
+      return this.findServiceByIdForBusiness(businessId, serviceId);
+    }
+
+    assignments.push("updated_at = now()");
+
     const result = await this.databaseService.query<ServiceRow>(
       `
         UPDATE services
-        SET name = COALESCE($3, name),
-            description = COALESCE($4, description),
-            duration_minutes = COALESCE($5, duration_minutes),
-            price = COALESCE($6, price),
-            updated_at = now()
+        SET ${assignments.join(", ")}
         WHERE business_id = $1 AND id = $2
         RETURNING *
       `,
-      [
-        businessId,
-        serviceId,
-        input.name ?? null,
-        input.description ?? null,
-        input.durationMinutes ?? null,
-        input.price ?? null
-      ]
+      values
     );
 
     return result.rows[0] ? mapService(result.rows[0]) : null;
@@ -108,7 +145,7 @@ function mapService(row: ServiceRow): BusinessService {
     durationMinutes: row.duration_minutes,
     id: row.id,
     name: row.name,
-    price: Number(row.price),
+    price: row.price === null ? null : Number(row.price),
     updatedAt: row.updated_at
   };
 }

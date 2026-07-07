@@ -4,12 +4,15 @@ import type {
   Business,
   BusinessRepository,
   CreateBusinessInput,
+  FindActiveBusinessesOptions,
   Membership,
   UpdateBusinessInput
 } from "./business.repository";
 
 interface BusinessRow {
+  address: string | null;
   business_type: Business["businessType"];
+  city: string | null;
   created_at: Date;
   id: string;
   initial_owner_user_id: string;
@@ -75,6 +78,47 @@ export class PostgresBusinessRepository implements BusinessRepository {
     return result.rows.map(mapBusiness);
   }
 
+  async findActiveBusinesses(options?: FindActiveBusinessesOptions): Promise<Business[]> {
+    const businessTypes = options?.businessTypes;
+    const search = options?.search?.trim();
+
+    const result = await this.databaseService.query<BusinessRow>(
+      `
+        SELECT *
+        FROM tenants
+        WHERE status = 'ACTIVE'
+          AND ($1::text[] IS NULL OR business_type = ANY($1))
+          AND ($2::text IS NULL OR name ILIKE $3)
+        ORDER BY name ASC, created_at ASC
+      `,
+      [
+        businessTypes && businessTypes.length > 0 ? businessTypes : null,
+        search ?? null,
+        search ? `%${search}%` : null
+      ]
+    );
+
+    return result.rows.map(mapBusiness);
+  }
+
+  async findActiveBusinessById(businessId: string): Promise<Business | null> {
+    const result = await this.databaseService.query<BusinessRow>(
+      "SELECT * FROM tenants WHERE id = $1 AND status = 'ACTIVE' LIMIT 1",
+      [businessId]
+    );
+
+    return result.rows[0] ? mapBusiness(result.rows[0]) : null;
+  }
+
+  async findBusinessById(businessId: string): Promise<Business | null> {
+    const result = await this.databaseService.query<BusinessRow>(
+      "SELECT * FROM tenants WHERE id = $1 LIMIT 1",
+      [businessId]
+    );
+
+    return result.rows[0] ? mapBusiness(result.rows[0]) : null;
+  }
+
   async findBusinessByIdForUser(businessId: string, userId: string): Promise<Business | null> {
     const result = await this.databaseService.query<BusinessRow>(
       `
@@ -106,11 +150,22 @@ export class PostgresBusinessRepository implements BusinessRepository {
         SET name = COALESCE($2, name),
             business_type = COALESCE($3, business_type),
             timezone = COALESCE($4, timezone),
+            address = CASE WHEN $5::boolean THEN $6 ELSE address END,
+            city = CASE WHEN $7::boolean THEN $8 ELSE city END,
             updated_at = now()
         WHERE id = $1
         RETURNING *
       `,
-      [id, input.name ?? null, input.businessType ?? null, input.timezone ?? null]
+      [
+        id,
+        input.name ?? null,
+        input.businessType ?? null,
+        input.timezone ?? null,
+        input.address !== undefined,
+        input.address ?? null,
+        input.city !== undefined,
+        input.city ?? null
+      ]
     );
 
     return result.rows[0] ? mapBusiness(result.rows[0]) : null;
@@ -130,11 +185,29 @@ export class PostgresBusinessRepository implements BusinessRepository {
 
     return result.rows[0] ? mapBusiness(result.rows[0]) : null;
   }
+
+  async publishBusiness(id: string): Promise<Business | null> {
+    const result = await this.databaseService.query<BusinessRow>(
+      `
+        UPDATE tenants
+        SET status = 'ACTIVE',
+            updated_at = now()
+        WHERE id = $1
+          AND status = 'PENDING_ONBOARDING'
+        RETURNING *
+      `,
+      [id]
+    );
+
+    return result.rows[0] ? mapBusiness(result.rows[0]) : null;
+  }
 }
 
 function mapBusiness(row: BusinessRow): Business {
   return {
+    address: row.address,
     businessType: row.business_type,
+    city: row.city,
     createdAt: row.created_at,
     id: row.id,
     initialOwnerUserId: row.initial_owner_user_id,

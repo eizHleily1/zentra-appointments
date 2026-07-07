@@ -18,12 +18,11 @@ export class AppointmentsController {
   ) {
     return this.appointmentsService.createAppointment({
       businessId,
-      clientUserId: body.clientUserId,
-      endsAt: body.endsAt,
+      clientId: body.clientId,
       requesterUserId: user.id,
       serviceId: body.serviceId,
       staffMemberId: body.staffMemberId,
-      startsAt: body.startsAt
+      startTime: body.startTime
     });
   }
 

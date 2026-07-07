@@ -1,9 +1,6 @@
 import type { AppointmentStatus } from "../src/appointments/appointment-status";
-import type {
-  Appointment,
-  AppointmentRepository,
-  CreateAppointmentInput
-} from "../src/appointments/appointment.repository";
+
+import type { Appointment, AppointmentRepository, CreateAppointmentInput } from "../src/appointments/appointment.repository";
 
 export class InMemoryAppointmentRepository implements AppointmentRepository {
   private readonly appointments = new Map<string, Appointment>();
@@ -12,7 +9,9 @@ export class InMemoryAppointmentRepository implements AppointmentRepository {
     const now = new Date();
     const appointment: Appointment = {
       businessId: input.businessId,
-      clientUserId: input.clientUserId,
+      clientDisplayName: input.clientDisplayName,
+      clientId: input.clientId,
+      clientPhoneNumber: input.clientPhoneNumber,
       createdAt: now,
       endsAt: input.endsAt,
       id: input.id,
@@ -33,6 +32,21 @@ export class InMemoryAppointmentRepository implements AppointmentRepository {
 
   async findAppointmentsForBusiness(businessId: string): Promise<Appointment[]> {
     return Array.from(this.appointments.values()).filter((appointment) => appointment.businessId === businessId);
+  }
+
+  async findAppointmentsForStaffMemberBetween(
+    businessId: string,
+    staffMemberId: string,
+    rangeStart: Date,
+    rangeEnd: Date
+  ): Promise<Appointment[]> {
+    return Array.from(this.appointments.values()).filter(
+      (appointment) =>
+        appointment.businessId === businessId &&
+        appointment.staffMemberId === staffMemberId &&
+        appointment.startsAt.getTime() >= rangeStart.getTime() &&
+        appointment.startsAt.getTime() < rangeEnd.getTime()
+    );
   }
 
   async findAppointmentByIdForBusiness(businessId: string, appointmentId: string): Promise<Appointment | null> {

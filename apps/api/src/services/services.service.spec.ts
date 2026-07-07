@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import { BUSINESS_REPOSITORY } from "../businesses/business.repository";
@@ -140,6 +140,77 @@ describe("ServicesService", () => {
         userId: "user-1"
       })
     ).rejects.toThrow(BadRequestException);
+  });
+
+  it("rejects duplicate active service names using normalized comparison", async () => {
+    const business = await createBusinessForUser(businessRepository, "user-1");
+
+    await service.createService({
+      businessId: business.id,
+      description: "Classic haircut",
+      durationMinutes: 30,
+      name: "Haircut",
+      price: 15,
+      userId: "user-1"
+    });
+
+    await expect(
+      service.createService({
+        businessId: business.id,
+        description: "Duplicate",
+        durationMinutes: 30,
+        name: " haircut ",
+        userId: "user-1"
+      })
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it("allows creating a service without a price", async () => {
+    const business = await createBusinessForUser(businessRepository, "user-1");
+
+    await expect(
+      service.createService({
+        businessId: business.id,
+        description: "Free consultation",
+        durationMinutes: 30,
+        name: "Consultation",
+        userId: "user-1"
+      })
+    ).resolves.toMatchObject({
+      name: "Consultation",
+      price: null
+    });
+  });
+
+  it("excludes deactivated services from normal lists and allows name reuse", async () => {
+    const business = await createBusinessForUser(businessRepository, "user-1");
+    const createdService = await service.createService({
+      businessId: business.id,
+      description: "Classic haircut",
+      durationMinutes: 30,
+      name: "Haircut",
+      price: 15,
+      userId: "user-1"
+    });
+
+    await service.deactivateService(business.id, createdService.id, "user-1");
+
+    await expect(service.findServicesForBusiness(business.id, "user-1")).resolves.toEqual([]);
+
+    await expect(
+      service.createService({
+        businessId: business.id,
+        description: "New haircut",
+        durationMinutes: 30,
+        name: "Haircut",
+        price: 20,
+        userId: "user-1"
+      })
+    ).resolves.toMatchObject({
+      active: true,
+      name: "Haircut",
+      price: 20
+    });
   });
 });
 

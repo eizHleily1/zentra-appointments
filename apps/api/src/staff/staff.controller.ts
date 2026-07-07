@@ -21,6 +21,7 @@ export class StaffController {
       businessId,
       displayName: body.displayName,
       requesterUserId: user.id,
+      userEmail: body.userEmail,
       userId: body.userId
     });
   }

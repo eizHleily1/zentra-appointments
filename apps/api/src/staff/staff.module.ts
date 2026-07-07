@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { BusinessesModule } from "../businesses/businesses.module";
 import { DatabaseModule } from "../database/database.module";
@@ -9,7 +9,7 @@ import { StaffService } from "./staff.service";
 
 @Module({
   controllers: [StaffController],
-  imports: [AuthModule, BusinessesModule, DatabaseModule],
+  imports: [AuthModule, forwardRef(() => BusinessesModule), DatabaseModule],
   providers: [
     PostgresStaffRepository,
     StaffService,

@@ -1,18 +1,15 @@
-import { IsISO8601, IsUUID } from "class-validator";
-
-export class CreateAppointmentDto {
-  @IsUUID()
-  clientUserId!: string;
-
-  @IsUUID()
-  staffMemberId!: string;
-
-  @IsUUID()
-  serviceId!: string;
-
-  @IsISO8601()
-  startsAt!: string;
-
-  @IsISO8601()
-  endsAt!: string;
-}
+import { IsISO8601, IsUUID } from "class-validator";
+
+export class CreateAppointmentDto {
+  @IsUUID(undefined, { message: "Select a client" })
+  clientId!: string;
+
+  @IsUUID(undefined, { message: "Select a staff member" })
+  staffMemberId!: string;
+
+  @IsUUID(undefined, { message: "Select a service" })
+  serviceId!: string;
+
+  @IsISO8601(undefined, { message: "Select an available time slot" })
+  startTime!: string;
+}
