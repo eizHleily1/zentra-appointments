@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import App, {
   AppointmentListCard,
   BookAppointmentScreen,
+  BusinessCard,
   BusinessProfileScreen,
   buildBookAppointmentPayload,
   buildConsumerBookAppointmentPayload,
@@ -68,6 +69,62 @@ describe("ExploreTabScreen", () => {
     expect(screen.getByText("Other")).toBeTruthy();
     expect(screen.getByPlaceholderText("Search by business name")).toBeTruthy();
   });
+
+  it("renders business cards with human labels and no UUIDs", () => {
+    render(
+      <ExploreTabScreen
+        businesses={[
+          {
+            address: "123 Main St",
+            businessType: "BARBER",
+            city: "Amman",
+            id: "00000000-0000-4000-8000-000000000010",
+            name: "Downtown Barber",
+            timezone: "Asia/Amman"
+          }
+        ]}
+        loading={false}
+        onSearchQueryChange={() => undefined}
+        onSelectBusiness={() => undefined}
+        onSelectCategory={() => undefined}
+        searchQuery=""
+        selectedCategory={null}
+      />
+    );
+
+    expect(screen.getByText("Downtown Barber")).toBeTruthy();
+    expect(screen.getByText("Barber Shop")).toBeTruthy();
+    expect(screen.getByText("Amman · 123 Main St")).toBeTruthy();
+    expect(screen.getByText("D")).toBeTruthy();
+    expect(screen.getByText("View profile")).toBeTruthy();
+    expect(screen.queryByText(/00000000-0000-4000-8000-000000000010/)).toBeNull();
+    expect(screen.queryByText("BARBER")).toBeNull();
+  });
+});
+
+describe("BusinessCard", () => {
+  it("renders a tappable business card without raw enums", () => {
+    const onPress = jest.fn();
+
+    render(
+      <BusinessCard
+        business={{
+          address: null,
+          businessType: "BARBER",
+          city: "Amman",
+          id: "00000000-0000-4000-8000-000000000010",
+          name: "Downtown Barber",
+          timezone: "Asia/Amman"
+        }}
+        onPress={onPress}
+      />
+    );
+
+    fireEvent.press(screen.getByText("View profile"));
+    expect(onPress).toHaveBeenCalled();
+    expect(screen.getByText("Barber Shop")).toBeTruthy();
+    expect(screen.queryByText("BARBER")).toBeNull();
+  });
 });
 
 describe("CategoryBusinessListScreen", () => {
@@ -97,46 +154,74 @@ describe("CategoryBusinessListScreen", () => {
   });
 });
 
+const profileFixture = {
+  address: "123 Main St",
+  businessHours: [
+    {
+      closeTime: "18:00",
+      dayOfWeek: 1,
+      id: "hour-1",
+      isClosed: false,
+      openTime: "09:00"
+    }
+  ],
+  businessType: "BARBER",
+  city: "Amman",
+  id: "00000000-0000-4000-8000-000000000010",
+  isBookable: true,
+  name: "Downtown Barber",
+  services: [
+    {
+      description: "Classic cut",
+      durationMinutes: 30,
+      id: "00000000-0000-4000-8000-000000000011",
+      name: "Haircut",
+      price: 15
+    }
+  ],
+  staff: [{ displayName: "Alex", id: "00000000-0000-4000-8000-000000000012" }],
+  timezone: "Asia/Amman"
+};
+
 describe("BusinessProfileScreen", () => {
-  it("renders services and staff", () => {
+  it("renders services, staff, hours, and book CTA", () => {
+    render(
+      <BusinessProfileScreen
+        business={profileFixture}
+        onBack={() => undefined}
+        onBook={() => undefined}
+      />
+    );
+
+    expect(screen.getByText("Downtown Barber")).toBeTruthy();
+    expect(screen.getByText("Barber Shop")).toBeTruthy();
+    expect(screen.getByText("Amman · 123 Main St")).toBeTruthy();
+    expect(screen.getByText("Hours")).toBeTruthy();
+    expect(screen.getByText("Haircut")).toBeTruthy();
+    expect(screen.getByText("30 min · ₪15")).toBeTruthy();
+    expect(screen.getByText("Alex")).toBeTruthy();
+    expect(screen.getByText("Book appointment")).toBeTruthy();
+    expect(screen.queryByText(/00000000-0000-4000-8000-000000000011/)).toBeNull();
+    expect(screen.queryByText("BARBER")).toBeNull();
+  });
+
+  it("hides book CTA and explains when business is not bookable", () => {
     render(
       <BusinessProfileScreen
         business={{
-          address: null,
-          businessHours: [
-            {
-              closeTime: "18:00",
-              dayOfWeek: 1,
-              id: "hour-1",
-              isClosed: false,
-              openTime: "09:00"
-            }
-          ],
-          businessType: "BARBER",
-          city: "Amman",
-          id: "00000000-0000-4000-8000-000000000010",
-          name: "Downtown Barber",
-          services: [
-            {
-              description: "Classic cut",
-              durationMinutes: 30,
-              id: "00000000-0000-4000-8000-000000000011",
-              name: "Haircut",
-              price: 15
-            }
-          ],
-          staff: [{ displayName: "Alex", id: "00000000-0000-4000-8000-000000000012" }],
-          timezone: "Asia/Amman"
+          ...profileFixture,
+          isBookable: false,
+          services: [],
+          staff: []
         }}
         onBack={() => undefined}
         onBook={() => undefined}
       />
     );
 
-    expect(screen.getByText("Haircut")).toBeTruthy();
-    expect(screen.getByText("Alex")).toBeTruthy();
-    expect(screen.getByText("Book appointment")).toBeTruthy();
-    expect(screen.queryByText(/00000000-0000-4000-8000-000000000011/)).toBeNull();
+    expect(screen.getByText("Booking not available yet")).toBeTruthy();
+    expect(screen.getByText(/services or staff/i)).toBeTruthy();
+    expect(screen.queryByText("Book appointment")).toBeNull();
   });
 });
 

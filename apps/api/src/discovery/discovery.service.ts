@@ -16,6 +16,7 @@ import { type DiscoveryCategory, resolveBusinessTypesForCategory } from "./disco
 
 export interface PublicBusinessProfile extends PublicBusinessSummary {
   businessHours: BusinessHour[];
+  isBookable: boolean;
   services: Array<{
     description: string;
     durationMinutes: number;
@@ -58,25 +59,24 @@ export class DiscoveryService {
       this.staffRepository.findStaffMembersForBusiness(businessId)
     ]);
     const businessHours = storedHours.length > 0 ? storedHours : createDefaultBusinessHours(businessId);
+    const activeServices = services.filter((service) => service.active);
+    const activeStaff = staffMembers.filter((staffMember) => staffMember.active);
 
     return {
       ...toPublicBusinessSummary(business),
       businessHours,
-      services: services
-        .filter((service) => service.active)
-        .map((service) => ({
-          description: service.description,
-          durationMinutes: service.durationMinutes,
-          id: service.id,
-          name: service.name,
-          price: service.price
-        })),
-      staff: staffMembers
-        .filter((staffMember) => staffMember.active)
-        .map((staffMember) => ({
-          displayName: staffMember.displayName,
-          id: staffMember.id
-        }))
+      isBookable: activeServices.length > 0 && activeStaff.length > 0,
+      services: activeServices.map((service) => ({
+        description: service.description,
+        durationMinutes: service.durationMinutes,
+        id: service.id,
+        name: service.name,
+        price: service.price
+      })),
+      staff: activeStaff.map((staffMember) => ({
+        displayName: staffMember.displayName,
+        id: staffMember.id
+      }))
     };
   }
 }

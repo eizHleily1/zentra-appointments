@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { BusinessCard } from "../../components/BusinessCard";
 import { DISCOVERY_CATEGORY_OPTIONS } from "../../lib/constants";
-import { formatBusinessLocation, formatBusinessType } from "../../lib/formatters";
 import type { DiscoveryCategoryId, PublicBusinessSummary } from "../../lib/types";
 
 export type { DiscoveryCategoryId };
@@ -77,41 +77,15 @@ export function ExploreTabScreen({
             : "No businesses listed here yet. Try another category or check back soon."}
         </Text>
       ) : (
-        businesses.map((business) => {
-          const locationLabel = formatBusinessLocation(business.city, business.address);
-
-          return (
-            <Pressable key={business.id} onPress={() => onSelectBusiness(business)} style={styles.card}>
-              <Text style={styles.cardTitle}>{business.name}</Text>
-              <Text style={styles.cardMeta}>{formatBusinessType(business.businessType)}</Text>
-              {locationLabel ? <Text style={styles.cardMeta}>{locationLabel}</Text> : null}
-            </Pressable>
-          );
-        })
+        businesses.map((business) => (
+          <BusinessCard key={business.id} business={business} onPress={() => onSelectBusiness(business)} />
+        ))
       )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e2e8f0",
-    borderRadius: 14,
-    borderWidth: 1,
-    marginTop: 10,
-    padding: 16
-  },
-  cardMeta: {
-    color: "#64748b",
-    fontSize: 14,
-    marginTop: 4
-  },
-  cardTitle: {
-    color: "#0f172a",
-    fontSize: 18,
-    fontWeight: "700"
-  },
   categoryChip: {
     alignSelf: "flex-start",
     backgroundColor: "#ffffff",

@@ -153,6 +153,7 @@ describe("DiscoveryController", () => {
 
     expect(profile.body).toMatchObject({
       id: setup.business.id,
+      isBookable: true,
       name: setup.business.name,
       businessType: "BARBER"
     });
@@ -170,6 +171,31 @@ describe("DiscoveryController", () => {
     ]);
     expect(profile.body.staff[0]).not.toHaveProperty("userId");
     expect(profile.body.businessHours).toHaveLength(7);
+  });
+
+  it("marks profile as not bookable when active services or staff are missing", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+
+    await request(app.getHttpServer())
+      .post(`/businesses/${setup.business.id}/services/${setup.businessService.id}/deactivate`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/businesses/${setup.business.id}/staff/${setup.staffMember.id}/deactivate`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .expect(201);
+
+    const profile = await request(app.getHttpServer())
+      .get(`/discovery/businesses/${setup.business.id}`)
+      .expect(200);
+
+    expect(profile.body.isBookable).toBe(false);
+    expect(profile.body.services).toEqual([]);
+    expect(profile.body.staff).toEqual([]);
   });
 
   it("creates linked client on self-book and rejects spoofed clientId", async () => {

@@ -35,19 +35,31 @@ export function SettingsScreen({
         <View style={styles.publishCard}>
           <Text style={styles.publishCardTitle}>Go live in Explore</Text>
           <Text style={styles.publishCardText}>
-            Customers cannot discover your business until setup is complete and you publish.
+            Customers cannot discover or book your business until setup is complete and you publish.
           </Text>
           <View style={styles.checklist}>
             <Text style={publishReadiness.requirements.hasService ? styles.checklistDone : styles.checklistPending}>
-              {publishReadiness.requirements.hasService ? "✓" : "○"} At least one service
+              {publishReadiness.requirements.hasService ? "✓" : "○"} At least one service for booking
             </Text>
             <Text style={publishReadiness.requirements.hasStaff ? styles.checklistDone : styles.checklistPending}>
-              {publishReadiness.requirements.hasStaff ? "✓" : "○"} At least one staff member
+              {publishReadiness.requirements.hasStaff ? "✓" : "○"} At least one staff member for booking
             </Text>
             <Text style={publishReadiness.requirements.hasCity ? styles.checklistDone : styles.checklistPending}>
-              {publishReadiness.requirements.hasCity ? "✓" : "○"} City for discovery
+              {publishReadiness.requirements.hasCity ? "✓" : "○"} City shown on your public profile
             </Text>
           </View>
+          {!publishReadiness.canPublish ? (
+            <Text style={styles.publishCardText}>
+              {publishReadiness.missingSteps.join(" · ")}
+            </Text>
+          ) : (
+            <Text style={styles.publishCardText}>
+              Your profile is ready. Publish to appear in Explore and accept online bookings.
+            </Text>
+          )}
+          <Text style={styles.settingsMeta}>
+            Business hours appear on your public profile. Default hours are used until you customize them.
+          </Text>
           <Text style={styles.fieldLabel}>City</Text>
           <TextInput
             onChangeText={setCityDraft}

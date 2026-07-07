@@ -84,6 +84,75 @@ export const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700"
   },
+  businessAvatar: {
+    alignItems: "center",
+    backgroundColor: "#dbeafe",
+    borderRadius: 999,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  businessAvatarLarge: {
+    alignItems: "center",
+    backgroundColor: "#dbeafe",
+    borderRadius: 16,
+    height: 64,
+    justifyContent: "center",
+    width: 64
+  },
+  businessAvatarLargeText: {
+    color: "#1d4ed8",
+    fontSize: 28,
+    fontWeight: "700"
+  },
+  businessAvatarText: {
+    color: "#1d4ed8",
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  businessCard: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 16
+  },
+  businessCardBody: {
+    flex: 1,
+    marginLeft: 12
+  },
+  businessCardHint: {
+    color: "#2563eb",
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 12
+  },
+  businessCardRow: {
+    alignItems: "center",
+    flexDirection: "row"
+  },
+  profileCategory: {
+    color: "#475569",
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 4
+  },
+  profileHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginBottom: 16,
+    marginTop: 8
+  },
+  profileHeaderBody: {
+    flex: 1,
+    marginLeft: 14
+  },
+  profileLocation: {
+    color: "#64748b",
+    fontSize: 14,
+    marginTop: 4
+  },
   chip: {
     backgroundColor: "#ffffff",
     borderColor: "#cbd5e1",

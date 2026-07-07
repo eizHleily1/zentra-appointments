@@ -1,5 +1,5 @@
-import { Button, Pressable, ScrollView, Text } from "react-native";
-import { formatBusinessLocation, formatBusinessType } from "../../lib/formatters";
+import { Button, ScrollView, Text } from "react-native";
+import { BusinessCard } from "../../components/BusinessCard";
 import { styles } from "../../lib/styles";
 import type { PublicBusinessSummary } from "../../lib/types";
 
@@ -19,20 +19,13 @@ export function CategoryBusinessListScreen({
       <Text style={styles.sectionTitle}>{categoryLabel}</Text>
       <Button title="Back" onPress={onBack} />
       {businesses.length === 0 ? (
-        <Text style={styles.empty}>No businesses found in this category yet.</Text>
+        <Text style={styles.empty}>
+          No businesses found in this category yet. Try another category or check back soon.
+        </Text>
       ) : (
-        businesses.map((business) => {
-          const locationLabel = formatBusinessLocation(business.city, business.address);
-
-          return (
-            <Pressable key={business.id} onPress={() => onSelectBusiness(business)} style={styles.card}>
-              <Text style={styles.cardTitle}>{business.name}</Text>
-              <Text style={styles.cardMeta}>{formatBusinessType(business.businessType)}</Text>
-              {locationLabel ? <Text style={styles.cardMeta}>{locationLabel}</Text> : null}
-              <Text style={styles.linkButtonText}>View</Text>
-            </Pressable>
-          );
-        })
+        businesses.map((business) => (
+          <BusinessCard key={business.id} business={business} onPress={() => onSelectBusiness(business)} />
+        ))
       )}
     </ScrollView>
   );

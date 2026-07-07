@@ -102,6 +102,7 @@ export interface PublicBusinessSummary {
 
 export interface PublicBusinessProfile extends PublicBusinessSummary {
   businessHours: BusinessHour[];
+  isBookable: boolean;
   services: Array<{
     description: string;
     durationMinutes: number;

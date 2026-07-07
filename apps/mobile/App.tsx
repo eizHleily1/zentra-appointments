@@ -5,6 +5,7 @@ import { AuthPromptModal } from "./components/AuthPromptModal";
 import { ConsumerTabBar, type ConsumerTab } from "./components/ConsumerTabBar";
 import { OwnerTabBar } from "./components/OwnerTabBar";
 import { apiFetch, createApiClient } from "./lib/api";
+import { isBusinessBookable } from "./lib/business-profile";
 import { formatBusinessStatus, formatBusinessType } from "./lib/formatters";
 import { styles } from "./lib/styles";
 import type {
@@ -60,6 +61,7 @@ export {
 } from "./lib/formatters";
 export type { DiscoveryCategoryId } from "./lib/types";
 export { AppointmentListCard } from "./components/AppointmentListCard";
+export { BusinessCard } from "./components/BusinessCard";
 export { buildBookAppointmentPayload, BookAppointmentScreen } from "./screens/owner/BookAppointmentScreen";
 export { CategoryBusinessListScreen } from "./screens/consumer/CategoryBusinessListScreen";
 export { BusinessProfileScreen } from "./screens/consumer/BusinessProfileScreen";
@@ -276,7 +278,7 @@ export default function App() {
   );
 
   function startBookingFlow() {
-    if (!selectedDiscoveryBusiness) {
+    if (!selectedDiscoveryBusiness || !isBusinessBookable(selectedDiscoveryBusiness)) {
       return;
     }
 
