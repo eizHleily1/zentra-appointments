@@ -7,5 +7,9 @@
     },
     "strict": true
   },
-  "include": ["App.tsx", "*.test.tsx"]
+  "include": [
+    "App.tsx",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
 }
