@@ -3,7 +3,9 @@ import type {
   AuthRefreshToken,
   AuthRepository,
   CreateAuthAccountInput,
-  CreateRefreshTokenInput
+  CreateRefreshTokenInput,
+  RotatePresentedRefreshTokenInput,
+  RotatePresentedRefreshTokenResult
 } from "../src/auth/auth.repository";
 
 export class InMemoryAuthRepository implements AuthRepository {
@@ -67,6 +69,51 @@ export class InMemoryAuthRepository implements AuthRepository {
         token.revokedAt = new Date();
       }
     }
+  }
+
+  async rotatePresentedRefreshToken(
+    input: RotatePresentedRefreshTokenInput
+  ): Promise<RotatePresentedRefreshTokenResult> {
+    const presented = Array.from(this.refreshTokens.values()).find(
+      (token) => token.tokenHash === input.presentedTokenHash
+    );
+
+    if (!presented) {
+      return { type: "not_found" };
+    }
+
+    if (presented.revokedAt) {
+      await this.revokeRefreshTokensForAccount(presented.accountId);
+      return { type: "reuse_detected" };
+    }
+
+    if (presented.expiresAt.getTime() <= Date.now()) {
+      presented.revokedAt = new Date();
+      return { type: "expired" };
+    }
+
+    const account = this.accounts.get(presented.accountId);
+
+    if (!account || account.status !== "ACTIVE") {
+      await this.revokeRefreshTokensForAccount(presented.accountId);
+      return { type: "account_inactive" };
+    }
+
+    const replacement: AuthRefreshToken = {
+      accountId: presented.accountId,
+      createdAt: new Date(),
+      expiresAt: input.replacement.expiresAt,
+      id: input.replacement.id,
+      replacedByTokenId: null,
+      revokedAt: null,
+      tokenHash: input.replacement.tokenHash
+    };
+
+    this.refreshTokens.set(replacement.id, replacement);
+    presented.revokedAt = new Date();
+    presented.replacedByTokenId = replacement.id;
+
+    return { type: "rotated", account };
   }
 
   disableAccount(id: string): void {

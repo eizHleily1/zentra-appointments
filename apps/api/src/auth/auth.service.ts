@@ -62,34 +62,28 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string): Promise<AuthTokenResponse> {
-    const tokenHash = this.tokenService.hashRefreshToken(refreshToken);
-    const storedToken = await this.authRepository.findRefreshTokenByHash(tokenHash);
+    const replacementToken = this.tokenService.createRefreshToken();
+    const result = await this.authRepository.rotatePresentedRefreshToken({
+      presentedTokenHash: this.tokenService.hashRefreshToken(refreshToken),
+      replacement: {
+        expiresAt: this.tokenService.getRefreshTokenExpiresAt(),
+        id: randomUUID(),
+        tokenHash: this.tokenService.hashRefreshToken(replacementToken)
+      }
+    });
 
-    if (!storedToken) {
+    if (result.type !== "rotated") {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
-    if (storedToken.revokedAt) {
-      await this.authRepository.revokeRefreshTokensForAccount(storedToken.accountId);
-      throw new UnauthorizedException("Invalid refresh token");
-    }
-
-    if (storedToken.expiresAt.getTime() <= Date.now()) {
-      await this.authRepository.revokeRefreshToken(storedToken.id);
-      throw new UnauthorizedException("Invalid refresh token");
-    }
-
-    const account = await this.authRepository.findAccountById(storedToken.accountId);
-
-    if (!account || account.status !== "ACTIVE") {
-      await this.authRepository.revokeRefreshTokensForAccount(storedToken.accountId);
-      throw new UnauthorizedException("Invalid refresh token");
-    }
-
-    const tokenPair = await this.issueTokenPair(account);
-    await this.authRepository.revokeRefreshToken(storedToken.id, tokenPair.refreshTokenId);
-
-    return toAuthTokenResponse(tokenPair);
+    return {
+      accessToken: this.tokenService.signAccessToken({
+        email: result.account.email,
+        sub: result.account.id
+      }),
+      refreshToken: replacementToken,
+      tokenType: "Bearer"
+    };
   }
 
   async logout(refreshToken: string): Promise<{ success: true }> {

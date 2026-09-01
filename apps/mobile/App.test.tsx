@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import App, {
   AppointmentListCard,
   BookAppointmentScreen,
@@ -14,7 +14,7 @@ import App, {
 import { ExploreTabScreen } from "./screens/consumer/ExploreTabScreen";
 import { ConsumerAppointmentCard } from "./components/ConsumerAppointmentCard";
 import { BookingConfirmationScreen } from "./screens/consumer/BookingConfirmationScreen";
-import { formatServicePriceDisplay } from "./lib/formatters";
+import { formatBusinessStatus, formatBusinessType, formatServicePriceDisplay } from "./lib/formatters";
 import { ScheduleTabScreen } from "./screens/consumer/ScheduleTabScreen";
 import { ConsumerAppointmentDetailScreen } from "./screens/consumer/ConsumerAppointmentDetailScreen";
 import { OwnerAppointmentDetailScreen } from "./screens/owner/OwnerAppointmentDetailScreen";
@@ -22,6 +22,8 @@ import { ClientDetailsScreen } from "./screens/owner/ClientDetailsScreen";
 import { ClientsScreen } from "./screens/owner/ClientsScreen";
 import { ClientListCard } from "./components/ClientListCard";
 import { OwnerTabBar } from "./components/OwnerTabBar";
+import { ProfileTabScreen } from "./screens/consumer/ProfileTabScreen";
+import { BusinessesScreen } from "./screens/owner/BusinessesScreen";
 
 const noopAsync = async () => {};
 
@@ -43,6 +45,251 @@ describe("App", () => {
 
     expect(screen.queryByText(uuidPattern)).toBeNull();
     expect(screen.queryByText(isoTimestampPattern)).toBeNull();
+  });
+});
+
+const DISCOVERY_BUSINESS = {
+  address: "123 Main St",
+  businessType: "BARBER",
+  city: "Amman",
+  id: "biz-1",
+  name: "Downtown Barber",
+  timezone: "Asia/Amman"
+};
+
+const DISCOVERY_PROFILE = {
+  ...DISCOVERY_BUSINESS,
+  businessHours: [
+    { closeTime: "18:00", dayOfWeek: 0, id: "h0", isClosed: false, openTime: "09:00" },
+    { closeTime: "18:00", dayOfWeek: 1, id: "h1", isClosed: false, openTime: "09:00" },
+    { closeTime: "18:00", dayOfWeek: 2, id: "h2", isClosed: false, openTime: "09:00" },
+    { closeTime: "18:00", dayOfWeek: 3, id: "h3", isClosed: false, openTime: "09:00" },
+    { closeTime: "18:00", dayOfWeek: 4, id: "h4", isClosed: false, openTime: "09:00" },
+    { closeTime: "18:00", dayOfWeek: 5, id: "h5", isClosed: false, openTime: "09:00" },
+    { closeTime: "18:00", dayOfWeek: 6, id: "h6", isClosed: false, openTime: "09:00" }
+  ],
+  isBookable: true,
+  services: [{ description: "", durationMinutes: 30, id: "svc-1", name: "Haircut", price: 15 }],
+  staff: [{ displayName: "Alex", id: "staff-1" }]
+};
+
+function jsonResponse(data: unknown, status = 200) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(data)
+  });
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") {
+    return input;
+  }
+
+  if (input instanceof URL) {
+    return input.toString();
+  }
+
+  return input.url;
+}
+
+function mockConsumerApi(input: RequestInfo | URL, init?: RequestInit) {
+  const url = requestUrl(input);
+  const method = (
+    init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")
+  ).toUpperCase();
+  let pathname = url;
+
+  try {
+    pathname = new URL(url, "http://localhost:3001").pathname;
+  } catch {
+    pathname = url;
+  }
+
+  if (method === "POST" && pathname.endsWith("/auth/register")) {
+    return jsonResponse({ accessToken: "access-token", refreshToken: "refresh-token", tokenType: "Bearer" });
+  }
+
+  if (method === "POST" && pathname.endsWith("/auth/logout")) {
+    return jsonResponse({ success: true });
+  }
+
+  if (method === "GET" && pathname.includes("/available-slots")) {
+    return jsonResponse([{ endTime: "2030-07-02T07:30:00.000Z", label: "10:00", startTime: "2030-07-02T07:00:00.000Z" }]);
+  }
+
+  if (method === "POST" && pathname.includes("/discovery/businesses/") && pathname.endsWith("/appointments")) {
+    return jsonResponse({ startsAt: "2030-07-02T07:00:00.000Z" });
+  }
+
+  if (method === "GET" && pathname.endsWith("/discovery/businesses/biz-1")) {
+    return jsonResponse(DISCOVERY_PROFILE);
+  }
+
+  if (method === "GET" && pathname.endsWith("/discovery/businesses")) {
+    return jsonResponse([DISCOVERY_BUSINESS]);
+  }
+
+  if (method === "GET" && pathname === "/businesses") {
+    return jsonResponse([]);
+  }
+
+  if (method === "GET" && pathname.endsWith("/me/appointments")) {
+    return jsonResponse([]);
+  }
+
+  return jsonResponse({ message: `unmocked ${method} ${pathname}` }, 500);
+}
+
+async function openDowntownBarberProfile() {
+  await waitFor(() => {
+    expect(screen.getByText("Downtown Barber")).toBeTruthy();
+  });
+
+  fireEvent.press(screen.getByText("Downtown Barber"));
+
+  await waitFor(() => {
+    expect(screen.getByText("Book appointment")).toBeTruthy();
+  });
+}
+
+async function signInFromBookingPrompt() {
+  fireEvent.press(screen.getByText("Book appointment"));
+
+  await waitFor(() => {
+    expect(screen.getByText("Sign in to book")).toBeTruthy();
+  });
+
+  fireEvent.changeText(screen.getByPlaceholderText("Email"), "client@example.com");
+  fireEvent.changeText(screen.getByPlaceholderText("Password"), "strong-password");
+  fireEvent.press(screen.getByText("Create account"));
+
+  await waitFor(() => {
+    expect(screen.getByText("Book at Downtown Barber")).toBeTruthy();
+  });
+}
+
+function pressConsumerTab(label: "Home" | "Explore" | "Schedule" | "Profile") {
+  const matches = screen.getAllByText(label);
+  fireEvent.press(matches[matches.length - 1]);
+}
+
+async function signInFromProfile() {
+  pressConsumerTab("Profile");
+  fireEvent.press(screen.getByText("Sign in"));
+
+  await waitFor(() => {
+    expect(screen.getByPlaceholderText("Email")).toBeTruthy();
+  });
+
+  fireEvent.changeText(screen.getByPlaceholderText("Email"), "client@example.com");
+  fireEvent.changeText(screen.getByPlaceholderText("Password"), "strong-password");
+  const createAccountButtons = screen.getAllByText("Create account");
+  fireEvent.press(createAccountButtons[createAccountButtons.length - 1]);
+
+  await waitFor(() => {
+    expect(screen.getByText("client@example.com")).toBeTruthy();
+  });
+}
+
+function fetchPathname(input: RequestInfo | URL): string {
+  const url = requestUrl(input);
+
+  try {
+    return new URL(url, "http://localhost:3001").pathname;
+  } catch {
+    return url;
+  }
+}
+
+function findFetchCall(pathname: string, method = "POST") {
+  const fetchMock = globalThis.fetch as unknown as jest.Mock;
+  return fetchMock.mock.calls.find(([input, init]) => {
+    const callMethod = (init?.method ?? "GET").toUpperCase();
+    return callMethod === method && fetchPathname(input).endsWith(pathname);
+  });
+}
+
+describe("App consumer Home tab from Explore stack", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = jest.fn(mockConsumerApi) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("renders Home after Explore → profile → Home", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+
+    pressConsumerTab("Home");
+
+    expect(screen.getByText("Browse local businesses and book appointments in one place.")).toBeTruthy();
+    expect(screen.queryByText("Book appointment")).toBeNull();
+  });
+
+  it("keeps the business profile when tapping Explore again", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+
+    pressConsumerTab("Explore");
+
+    expect(screen.getByText("Book appointment")).toBeTruthy();
+    expect(screen.queryByText("Search by business name")).toBeNull();
+  });
+
+  it("returns to the Explore list after leaving a profile via Home", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+
+    pressConsumerTab("Home");
+    pressConsumerTab("Explore");
+
+    expect(screen.getByPlaceholderText("Search by business name")).toBeTruthy();
+    expect(screen.getByText("Downtown Barber")).toBeTruthy();
+    expect(screen.queryByText("Book appointment")).toBeNull();
+  });
+
+  it("renders Home after Explore → booking flow → Home", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await signInFromBookingPrompt();
+
+    pressConsumerTab("Home");
+
+    await waitFor(() => {
+      expect(screen.getByText("You have no upcoming appointments.")).toBeTruthy();
+    });
+    expect(screen.queryByText("Book at Downtown Barber")).toBeNull();
+  });
+
+  it("renders Home after Explore → confirmation → Home", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await signInFromBookingPrompt();
+
+    fireEvent.press(screen.getByText("Haircut"));
+
+    await waitFor(() => {
+      expect(screen.getByText("10:00")).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByText("10:00"));
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+
+    pressConsumerTab("Home");
+
+    await waitFor(() => {
+      expect(screen.getByText("You have no upcoming appointments.")).toBeTruthy();
+    });
+    expect(screen.queryByText("Appointment confirmed")).toBeNull();
   });
 });
 
@@ -720,6 +967,67 @@ describe("ClientListCard", () => {
   });
 });
 
+describe("ProfileTabScreen", () => {
+  it("lets a signed-in user with no businesses open manage businesses", () => {
+    const onManageBusinesses = jest.fn();
+
+    render(
+      <ProfileTabScreen
+        email="owner@example.com"
+        isAuthenticated
+        onManageBusinesses={onManageBusinesses}
+        onRecentBusiness={() => undefined}
+        onSignIn={() => undefined}
+        onSignOut={() => undefined}
+        recentBusinesses={[]}
+      />
+    );
+
+    expect(screen.getByText("Manage your businesses")).toBeTruthy();
+    fireEvent.press(screen.getByText("Manage your businesses"));
+    expect(onManageBusinesses).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show manage businesses until the user is signed in", () => {
+    render(
+      <ProfileTabScreen
+        email={null}
+        isAuthenticated={false}
+        onManageBusinesses={() => undefined}
+        onRecentBusiness={() => undefined}
+        onSignIn={() => undefined}
+        onSignOut={() => undefined}
+        recentBusinesses={[]}
+      />
+    );
+
+    expect(screen.queryByText("Manage your businesses")).toBeNull();
+    expect(screen.getByText("Sign in")).toBeTruthy();
+  });
+});
+
+describe("BusinessesScreen", () => {
+  it("offers create business when the owner has none", () => {
+    const onCreateBusiness = jest.fn();
+
+    render(
+      <BusinessesScreen
+        businesses={[]}
+        formatBusinessStatus={formatBusinessStatus}
+        formatBusinessType={formatBusinessType}
+        onBack={() => undefined}
+        onCreateBusiness={onCreateBusiness}
+        onRefresh={() => undefined}
+        onSelectBusiness={() => undefined}
+      />
+    );
+
+    expect(screen.getByText("Create your first business to get started.")).toBeTruthy();
+    fireEvent.press(screen.getByText("Create business"));
+    expect(onCreateBusiness).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("BookingConfirmationScreen", () => {
   it("renders confirmation details without ISO timestamps", () => {
     render(
@@ -740,5 +1048,79 @@ describe("BookingConfirmationScreen", () => {
     expect(screen.getByText("RK Barber")).toBeTruthy();
     expect(screen.getByText("Haircut")).toBeTruthy();
     expect(screen.queryByText(/2030-07-02T/)).toBeNull();
+  });
+});
+
+describe("App session logout and refresh failure", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = jest.fn(mockConsumerApi) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("sends the current refresh token to /auth/logout", async () => {
+    render(<App />);
+    await signInFromProfile();
+
+    fireEvent.press(screen.getByText("Sign out"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Your account")).toBeTruthy();
+    });
+
+    const logoutCall = findFetchCall("/auth/logout");
+    expect(logoutCall).toBeTruthy();
+    expect(JSON.parse(String(logoutCall?.[1]?.body))).toEqual({ refreshToken: "refresh-token" });
+  });
+
+  it("clears the signed-in UI when /auth/logout fails", async () => {
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchPathname(input).endsWith("/auth/logout")) {
+        return jsonResponse({ message: "Server error" }, 500);
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await signInFromProfile();
+
+    fireEvent.press(screen.getByText("Sign out"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Your account")).toBeTruthy();
+      expect(screen.queryByText("client@example.com")).toBeNull();
+      expect(screen.getByText("Sign in")).toBeTruthy();
+    });
+  });
+
+  it("returns to the signed-out state when token refresh fails", async () => {
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const pathname = fetchPathname(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && pathname.endsWith("/auth/refresh")) {
+        return jsonResponse({ message: "Invalid refresh token" }, 401);
+      }
+
+      if (method === "GET" && pathname.endsWith("/me/appointments")) {
+        return jsonResponse({ message: "Unauthorized" }, 401);
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await signInFromProfile();
+    pressConsumerTab("Home");
+
+    await waitFor(() => {
+      expect(screen.getByText("Your account")).toBeTruthy();
+      expect(screen.queryByText("client@example.com")).toBeNull();
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Text, View } from "react-native";
 import { AuthPromptModal } from "./components/AuthPromptModal";
 import { ConsumerTabBar, type ConsumerTab } from "./components/ConsumerTabBar";
@@ -98,8 +98,45 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const tokensRef = useRef<AuthTokens | null>(null);
 
-  const api = useMemo(() => createApiClient(tokens?.accessToken ?? null), [tokens]);
+  const resetSignedOutState = useCallback(() => {
+    tokensRef.current = null;
+    setTokens(null);
+    setUserEmail(null);
+    setAppArea("consumer");
+    setBusinesses([]);
+    setServices([]);
+    setStaffMembers([]);
+    setAppointments([]);
+    setMyAppointments([]);
+    setDiscoveredBusinesses([]);
+    setSelectedBusiness(null);
+    setSelectedDiscoveryBusiness(null);
+    setSelectedCategory(null);
+    setBookingConfirmation(null);
+    setAuthScreen("businesses");
+    setClientScreen("home");
+    setConsumerTab("profile");
+    setActiveTab("home");
+    setOverlayScreen(null);
+    setBookingInitialClient(null);
+    setSelectedOwnerAppointment(null);
+    setMessage(null);
+  }, []);
+
+  const api = useMemo(
+    () =>
+      createApiClient({
+        getTokens: () => tokensRef.current,
+        onSessionInvalid: resetSignedOutState,
+        onTokensRotated: (nextTokens) => {
+          tokensRef.current = nextTokens;
+          setTokens(nextTokens);
+        }
+      }),
+    [resetSignedOutState]
+  );
 
   const run = useCallback(async (action: () => Promise<void>, successMessage?: string) => {
     setLoading(true);
@@ -226,7 +263,7 @@ export default function App() {
 
   useEffect(() => {
     if (tokens && (consumerTab === "home" || consumerTab === "schedule")) {
-      void loadMyAppointments();
+      void loadMyAppointments().catch(() => undefined);
     }
   }, [consumerTab, loadMyAppointments, tokens]);
 
@@ -244,11 +281,12 @@ export default function App() {
 
   const handleAuthSuccess = useCallback(
     async (nextTokens: AuthTokens, email: string) => {
+      tokensRef.current = nextTokens;
       setTokens(nextTokens);
       setUserEmail(email);
       setShowAuthPrompt(false);
 
-      const nextBusinesses = await apiFetch<Business[]>("/businesses", {}, nextTokens.accessToken);
+      const nextBusinesses = await api.request<Business[]>("/businesses");
       setBusinesses(nextBusinesses);
 
       if (pendingBookingBusiness) {
@@ -263,7 +301,7 @@ export default function App() {
         setConsumerTab("profile");
       }
     },
-    [pendingBookingBusiness, pendingProfileAuth]
+    [api, pendingBookingBusiness, pendingProfileAuth]
   );
 
   const openBusinessProfile = useCallback(
@@ -292,27 +330,7 @@ export default function App() {
   }
 
   function logout() {
-    setTokens(null);
-    setUserEmail(null);
-    setAppArea("consumer");
-    setBusinesses([]);
-    setServices([]);
-    setStaffMembers([]);
-    setAppointments([]);
-    setMyAppointments([]);
-    setDiscoveredBusinesses([]);
-    setSelectedBusiness(null);
-    setSelectedDiscoveryBusiness(null);
-    setSelectedCategory(null);
-    setBookingConfirmation(null);
-    setAuthScreen("businesses");
-    setClientScreen("home");
-    setConsumerTab("profile");
-    setActiveTab("home");
-    setOverlayScreen(null);
-    setBookingInitialClient(null);
-    setSelectedOwnerAppointment(null);
-    setMessage(null);
+    void api.logout();
   }
 
   const openBookAppointment = useCallback((client?: BookingInitialClient) => {
@@ -333,6 +351,14 @@ export default function App() {
   const closeOwnerAppointmentDetail = useCallback(() => {
     setOverlayScreen(null);
     setSelectedOwnerAppointment(null);
+  }, []);
+
+  const selectConsumerTab = useCallback((tab: ConsumerTab) => {
+    if (tab === "home") {
+      setClientScreen("home");
+    }
+
+    setConsumerTab(tab);
   }, []);
 
   const showOwnerApp = appArea === "owner" && tokens !== null && selectedBusiness !== null;
@@ -620,7 +646,6 @@ export default function App() {
       {showConsumerShell && consumerTab === "profile" ? (
         <ProfileTabScreen
           email={userEmail}
-          hasBusinesses={businesses.length > 0}
           isAuthenticated={tokens !== null}
           onManageBusinesses={() => {
             if (!tokens) {
@@ -641,7 +666,7 @@ export default function App() {
         />
       ) : null}
 
-      {showConsumerShell ? <ConsumerTabBar activeTab={consumerTab} onChange={setConsumerTab} /> : null}
+      {showConsumerShell ? <ConsumerTabBar activeTab={consumerTab} onChange={selectConsumerTab} /> : null}
 
       <AuthPromptModal
         onClose={() => {

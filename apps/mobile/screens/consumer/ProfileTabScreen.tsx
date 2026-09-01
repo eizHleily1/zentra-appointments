@@ -2,7 +2,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 export function ProfileTabScreen({
   email,
-  hasBusinesses,
   isAuthenticated,
   onManageBusinesses,
   onRecentBusiness,
@@ -11,7 +10,6 @@ export function ProfileTabScreen({
   recentBusinesses
 }: {
   email: string | null;
-  hasBusinesses: boolean;
   isAuthenticated: boolean;
   onManageBusinesses: () => void;
   onRecentBusiness: (businessId: string) => void;
@@ -58,11 +56,9 @@ export function ProfileTabScreen({
         </>
       ) : null}
 
-      {hasBusinesses ? (
-        <Pressable onPress={onManageBusinesses} style={styles.listRow}>
-          <Text style={styles.listRowTitle}>Manage your businesses</Text>
-        </Pressable>
-      ) : null}
+      <Pressable onPress={onManageBusinesses} style={styles.listRow}>
+        <Text style={styles.listRowTitle}>Manage your businesses</Text>
+      </Pressable>
 
       <Pressable onPress={onSignOut} style={styles.signOutButton}>
         <Text style={styles.signOutText}>Sign out</Text>

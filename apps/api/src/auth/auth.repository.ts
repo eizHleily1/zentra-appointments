@@ -35,6 +35,22 @@ export interface CreateRefreshTokenInput {
   tokenHash: string;
 }
 
+export interface RotatePresentedRefreshTokenInput {
+  presentedTokenHash: string;
+  replacement: {
+    expiresAt: Date;
+    id: string;
+    tokenHash: string;
+  };
+}
+
+export type RotatePresentedRefreshTokenResult =
+  | { type: "account_inactive" }
+  | { type: "expired" }
+  | { type: "not_found" }
+  | { type: "reuse_detected" }
+  | { type: "rotated"; account: AuthAccount };
+
 export interface AuthRepository {
   createAccount(input: CreateAuthAccountInput): Promise<AuthAccount>;
   createRefreshToken(input: CreateRefreshTokenInput): Promise<AuthRefreshToken>;
@@ -43,4 +59,7 @@ export interface AuthRepository {
   findRefreshTokenByHash(tokenHash: string): Promise<AuthRefreshToken | null>;
   revokeRefreshToken(id: string, replacedByTokenId?: string): Promise<void>;
   revokeRefreshTokensForAccount(accountId: string): Promise<void>;
+  rotatePresentedRefreshToken(
+    input: RotatePresentedRefreshTokenInput
+  ): Promise<RotatePresentedRefreshTokenResult>;
 }

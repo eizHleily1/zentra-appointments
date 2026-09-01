@@ -1,11 +1,13 @@
 import { Injectable } from "@nestjs/common";
-import { DatabaseService } from "../database/database.service";
+import { DatabaseService, type DatabaseTransactionClient } from "../database/database.service";
 import type {
   AuthAccount,
   AuthRefreshToken,
   AuthRepository,
   CreateAuthAccountInput,
-  CreateRefreshTokenInput
+  CreateRefreshTokenInput,
+  RotatePresentedRefreshTokenInput,
+  RotatePresentedRefreshTokenResult
 } from "./auth.repository";
 
 interface AuthAccountRow {
@@ -106,6 +108,86 @@ export class PostgresAuthRepository implements AuthRepository {
       [accountId]
     );
   }
+
+  async rotatePresentedRefreshToken(
+    input: RotatePresentedRefreshTokenInput
+  ): Promise<RotatePresentedRefreshTokenResult> {
+    return this.databaseService.transaction(async (client) => {
+      const lockedResult = await client.query<AuthRefreshTokenRow>(
+        "SELECT * FROM auth_refresh_tokens WHERE token_hash = $1 LIMIT 1 FOR UPDATE",
+        [input.presentedTokenHash]
+      );
+      const presented = lockedResult.rows[0];
+
+      if (!presented) {
+        return { type: "not_found" };
+      }
+
+      if (presented.revoked_at) {
+        await revokeAccountRefreshTokens(client, presented.account_id);
+        return { type: "reuse_detected" };
+      }
+
+      if (presented.expires_at.getTime() <= Date.now()) {
+        await client.query(
+          `
+            UPDATE auth_refresh_tokens
+            SET revoked_at = COALESCE(revoked_at, now())
+            WHERE id = $1
+          `,
+          [presented.id]
+        );
+        return { type: "expired" };
+      }
+
+      const accountResult = await client.query<AuthAccountRow>(
+        "SELECT * FROM users WHERE id = $1 LIMIT 1 FOR UPDATE",
+        [presented.account_id]
+      );
+      const accountRow = accountResult.rows[0];
+
+      if (!accountRow || accountRow.status !== "ACTIVE") {
+        await revokeAccountRefreshTokens(client, presented.account_id);
+        return { type: "account_inactive" };
+      }
+
+      await client.query(
+        `
+          INSERT INTO auth_refresh_tokens (id, account_id, token_hash, expires_at)
+          VALUES ($1, $2, $3, $4)
+        `,
+        [input.replacement.id, presented.account_id, input.replacement.tokenHash, input.replacement.expiresAt]
+      );
+
+      const revokePresented = await client.query(
+        `
+          UPDATE auth_refresh_tokens
+          SET revoked_at = now(),
+              replaced_by_token_id = $2
+          WHERE id = $1 AND revoked_at IS NULL
+        `,
+        [presented.id, input.replacement.id]
+      );
+
+      if (revokePresented.rowCount !== 1) {
+        await revokeAccountRefreshTokens(client, presented.account_id);
+        return { type: "reuse_detected" };
+      }
+
+      return { type: "rotated", account: mapAccount(accountRow) };
+    });
+  }
+}
+
+async function revokeAccountRefreshTokens(client: DatabaseTransactionClient, accountId: string): Promise<void> {
+  await client.query(
+    `
+      UPDATE auth_refresh_tokens
+      SET revoked_at = COALESCE(revoked_at, now())
+      WHERE account_id = $1
+    `,
+    [accountId]
+  );
 }
 
 function mapAccount(row: AuthAccountRow): AuthAccount {
