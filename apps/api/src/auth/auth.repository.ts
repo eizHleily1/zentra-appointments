@@ -49,6 +49,7 @@ export type RotatePresentedRefreshTokenResult =
   | { type: "expired" }
   | { type: "not_found" }
   | { type: "reuse_detected" }
+  | { type: "revoked" }
   | { type: "rotated"; account: AuthAccount };
 
 export interface AuthRepository {

@@ -115,6 +115,94 @@ describe("PostgresAuthRepository refresh-token rotation", () => {
     }
   });
 
+  it("account-wide-revokes when a successfully rotated token is presented again", async () => {
+    const { account, token: presented } = await seedActiveRefreshToken();
+    const independentLogin = await repository.createRefreshToken({
+      accountId: account.id,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      id: randomUUID(),
+      tokenHash: `refresh-hash-${randomUUID()}`
+    });
+    const replacement = replacementInput();
+
+    await expect(
+      repository.rotatePresentedRefreshToken({
+        presentedTokenHash: presented.tokenHash,
+        replacement
+      })
+    ).resolves.toMatchObject({ type: "rotated" });
+
+    await expect(
+      repository.rotatePresentedRefreshToken({
+        presentedTokenHash: presented.tokenHash,
+        replacement: replacementInput()
+      })
+    ).resolves.toEqual({ type: "reuse_detected" });
+
+    const tokens = await loadTokensForAccount(account.id);
+    const successor = tokens.find((token) => token.id === replacement.id);
+    const otherSession = tokens.find((token) => token.id === independentLogin.id);
+
+    expect(tokens).toHaveLength(3);
+    expect(successor?.revokedAt).toBeInstanceOf(Date);
+    expect(otherSession?.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it("does not revoke a newer login token when a logged-out refresh token is presented", async () => {
+    const { account, token: presented } = await seedActiveRefreshToken();
+    await repository.revokeRefreshToken(presented.id);
+    const newerLogin = await repository.createRefreshToken({
+      accountId: account.id,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      id: randomUUID(),
+      tokenHash: `refresh-hash-${randomUUID()}`
+    });
+
+    await expect(
+      repository.rotatePresentedRefreshToken({
+        presentedTokenHash: presented.tokenHash,
+        replacement: replacementInput()
+      })
+    ).resolves.toEqual({ type: "revoked" });
+
+    const tokens = await loadTokensForAccount(account.id);
+    const newerRow = tokens.find((token) => token.id === newerLogin.id);
+    const presentedRow = tokens.find((token) => token.id === presented.id);
+
+    expect(presentedRow?.replacedByTokenId).toBeNull();
+    expect(newerRow?.revokedAt).toBeNull();
+  });
+
+  it("does not family-revoke when a revoked token has no successor", async () => {
+    const { account, token: sibling } = await seedActiveRefreshToken();
+    const expired = await repository.createRefreshToken({
+      accountId: account.id,
+      expiresAt: new Date(Date.now() - 1000),
+      id: randomUUID(),
+      tokenHash: `refresh-hash-${randomUUID()}`
+    });
+
+    await expect(
+      repository.rotatePresentedRefreshToken({
+        presentedTokenHash: expired.tokenHash,
+        replacement: replacementInput()
+      })
+    ).resolves.toEqual({ type: "expired" });
+
+    expect((await loadTokensForAccount(account.id)).find((token) => token.id === sibling.id)?.revokedAt).toBeNull();
+
+    await expect(
+      repository.rotatePresentedRefreshToken({
+        presentedTokenHash: expired.tokenHash,
+        replacement: replacementInput()
+      })
+    ).resolves.toEqual({ type: "revoked" });
+
+    const tokens = await loadTokensForAccount(account.id);
+    expect(tokens.find((token) => token.id === sibling.id)?.revokedAt).toBeNull();
+    expect(tokens.find((token) => token.id === expired.id)?.replacedByTokenId).toBeNull();
+  });
+
   async function seedActiveRefreshToken() {
     const account = await repository.createAccount({
       email: `rotate-lock-${randomUUID()}@example.com`,
