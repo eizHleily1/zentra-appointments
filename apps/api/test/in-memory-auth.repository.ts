@@ -83,8 +83,12 @@ export class InMemoryAuthRepository implements AuthRepository {
     }
 
     if (presented.revokedAt) {
-      await this.revokeRefreshTokensForAccount(presented.accountId);
-      return { type: "reuse_detected" };
+      if (presented.replacedByTokenId) {
+        await this.revokeRefreshTokensForAccount(presented.accountId);
+        return { type: "reuse_detected" };
+      }
+
+      return { type: "revoked" };
     }
 
     if (presented.expiresAt.getTime() <= Date.now()) {

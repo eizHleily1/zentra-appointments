@@ -98,4 +98,15 @@ describe("AuthService", () => {
     await expect(authService.logout(response.refreshToken)).resolves.toEqual({ success: true });
     await expect(authService.refresh(response.refreshToken)).rejects.toThrow(UnauthorizedException);
   });
+
+  it("does not revoke a newer login when a logged-out refresh token is presented", async () => {
+    const initial = await authService.register("person@example.com", "strong-password");
+    await authService.logout(initial.refreshToken);
+    const nextLogin = await authService.login("person@example.com", "strong-password");
+
+    await expect(authService.refresh(initial.refreshToken)).rejects.toThrow("Invalid refresh token");
+    await expect(authService.refresh(nextLogin.refreshToken)).resolves.toMatchObject({
+      tokenType: "Bearer"
+    });
+  });
 });

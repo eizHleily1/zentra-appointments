@@ -124,8 +124,12 @@ export class PostgresAuthRepository implements AuthRepository {
       }
 
       if (presented.revoked_at) {
-        await revokeAccountRefreshTokens(client, presented.account_id);
-        return { type: "reuse_detected" };
+        if (presented.replaced_by_token_id) {
+          await revokeAccountRefreshTokens(client, presented.account_id);
+          return { type: "reuse_detected" };
+        }
+
+        return { type: "revoked" };
       }
 
       if (presented.expires_at.getTime() <= Date.now()) {
