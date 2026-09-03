@@ -117,9 +117,10 @@ export class PostgresClientRepository implements ClientRepository {
     return result.rows.map(mapClient);
   }
 
-  async findActiveClientByNormalizedPhoneForBusiness(
+  async findActiveClientByNormalizedPhoneAndNameForBusiness(
     businessId: string,
     normalizedPhone: string,
+    normalizedDisplayName: string,
     excludeClientId?: string
   ): Promise<Client | null> {
     const result = await this.databaseService.query<ClientRow>(
@@ -129,10 +130,11 @@ export class PostgresClientRepository implements ClientRepository {
         WHERE business_id = $1
           AND active = true
           AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
-          AND ($3::uuid IS NULL OR id <> $3)
+          AND lower(btrim(display_name)) = $3
+          AND ($4::uuid IS NULL OR id <> $4)
         LIMIT 1
       `,
-      [businessId, normalizedPhone, excludeClientId ?? null]
+      [businessId, normalizedPhone, normalizedDisplayName, excludeClientId ?? null]
     );
 
     return result.rows[0] ? mapClient(result.rows[0]) : null;

@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { APPOINTMENT_REPOSITORY } from "../src/appointments/appointment.repository";
@@ -198,50 +199,185 @@ describe("DiscoveryController", () => {
     expect(profile.body.staff).toEqual([]);
   });
 
-  it("creates linked client on self-book and rejects spoofed clientId", async () => {
+  it("lets unauthenticated users load available slots", async () => {
     const owner = await registerAndGetIdentity(app, "owner@example.com");
-    const consumer = await registerAndGetIdentity(app, "consumer@example.com");
     const staffUser = await registerAndGetIdentity(app, "staff@example.com");
     const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
     activateBusiness(businessRepository, setup.business.id);
 
-    const slots = await fetchConsumerSlots(app, consumer.accessToken, setup, TEST_DATE);
-    const appointment = await request(app.getHttpServer())
-      .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("authorization", `Bearer ${consumer.accessToken}`)
-      .send({
-        serviceId: setup.businessService.id,
-        staffMemberId: setup.staffMember.id,
-        startTime: slots[0].startTime
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots[0]).toEqual(
+      expect.objectContaining({
+        startTime: expect.any(String)
       })
-      .expect(201);
-
-    expect(appointment.body.clientDisplayName).toBe("consumer");
-
-    const linkedClient = await clientRepository.findClientByLinkedUserIdForBusiness(
-      setup.business.id,
-      consumer.userId
     );
 
-    expect(linkedClient).toMatchObject({
-      displayName: "consumer",
-      linkedUserId: consumer.userId
+    await request(app.getHttpServer())
+      .get(`/businesses/${setup.business.id}/available-slots`)
+      .query({
+        date: TEST_DATE,
+        serviceId: setup.businessService.id,
+        staffMemberId: setup.staffMember.id
+      })
+      .expect(401);
+  });
+
+  it("creates a guest appointment without a global user and rejects spoofed clientId", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+    const appointment = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "+1 555-123-4567"
+        })
+      )
+      .expect(201);
+
+    expect(appointment.body).toMatchObject({
+      clientDisplayName: "Maria Lopez",
+      clientPhoneNumber: "+1 555-123-4567"
     });
-    expect(appointment.body.clientId).toBe(linkedClient?.id);
+
+    const guestClient = clientRepository.getClients().find((client) => client.id === appointment.body.clientId);
+
+    expect(guestClient).toMatchObject({
+      businessId: setup.business.id,
+      displayName: "Maria Lopez",
+      linkedUserId: null,
+      phoneNumber: "+1 555-123-4567"
+    });
 
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("authorization", `Bearer ${consumer.accessToken}`)
       .send({
-        clientId: linkedClient?.id,
-        serviceId: setup.businessService.id,
-        staffMemberId: setup.staffMember.id,
-        startTime: slots[1].startTime
+        clientId: guestClient?.id,
+        ...guestBookingBody(setup, slots[1].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "+1 555-123-4567"
+        })
       })
       .expect(400);
   });
 
-  it("returns only the authenticated user's linked-client appointments", async () => {
+  it("requires display name and a valid phone number for guest booking", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send({
+        phoneNumber: "+1 555-123-4567",
+        serviceId: setup.businessService.id,
+        staffMemberId: setup.staffMember.id,
+        startTime: slots[0].startTime
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send({
+        displayName: "Maria Lopez",
+        serviceId: setup.businessService.id,
+        staffMemberId: setup.staffMember.id,
+        startTime: slots[0].startTime
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "abc"
+        })
+      )
+      .expect(400);
+  });
+
+  it("reuses a matching guest client and keeps a different name on the same phone as a separate client", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+
+    const parent = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567"
+        })
+      )
+      .expect(201);
+
+    const remainingAfterParent = await fetchConsumerSlots(app, setup, TEST_DATE);
+    const parentAgain = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, remainingAfterParent[0].startTime, {
+          displayName: "  maria lopez ",
+          phoneNumber: "(555) 123-4567"
+        })
+      )
+      .expect(201);
+
+    const remainingAfterParentAgain = await fetchConsumerSlots(app, setup, TEST_DATE);
+    const child = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, remainingAfterParentAgain[0].startTime, {
+          displayName: "Alex Lopez",
+          phoneNumber: "555-123-4567"
+        })
+      )
+      .expect(201);
+
+    expect(parentAgain.body.clientId).toBe(parent.body.clientId);
+    expect(child.body.clientId).not.toBe(parent.body.clientId);
+    expect(clientRepository.getClients().filter((client) => client.linkedUserId === null)).toHaveLength(2);
+  });
+
+  it("rejects overlapping guest bookings for the same staff slot", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "+1 555-123-4567"
+        })
+      )
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Alex Lopez",
+          phoneNumber: "+1 555-123-4567"
+        })
+      )
+      .expect(409);
+  });
+
+  it("does not attach guest bookings to a signed-in user's linked appointments", async () => {
     const owner = await registerAndGetIdentity(app, "owner@example.com");
     const consumer = await registerAndGetIdentity(app, "consumer@example.com");
     const otherConsumer = await registerAndGetIdentity(app, "other-consumer@example.com");
@@ -249,25 +385,43 @@ describe("DiscoveryController", () => {
     const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId, 30, "Haircut", "Prime Barber");
     activateBusiness(businessRepository, setup.business.id);
 
-    const slots = await fetchConsumerSlots(app, consumer.accessToken, setup, TEST_DATE);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .set("authorization", `Bearer ${consumer.accessToken}`)
-      .send({
-        serviceId: setup.businessService.id,
-        staffMemberId: setup.staffMember.id,
-        startTime: slots[0].startTime
-      })
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "+1 555-123-4567"
+        })
+      )
       .expect(201);
 
-    const otherSlots = await fetchConsumerSlots(app, otherConsumer.accessToken, setup, TEST_DATE);
+    const emptyMine = await request(app.getHttpServer())
+      .get("/me/appointments")
+      .set("authorization", `Bearer ${consumer.accessToken}`)
+      .expect(200);
+
+    expect(emptyMine.body).toEqual([]);
+
+    const linkedClient = await clientRepository.createClient({
+      businessId: setup.business.id,
+      displayName: "consumer",
+      email: "consumer@example.com",
+      id: randomUUID(),
+      linkedUserId: consumer.userId,
+      phoneNumber: "+1 555-000-0000"
+    });
+
+    const remainingSlots = await fetchConsumerSlots(app, setup, TEST_DATE);
     await request(app.getHttpServer())
-      .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("authorization", `Bearer ${otherConsumer.accessToken}`)
+      .post(`/businesses/${setup.business.id}/appointments`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
       .send({
+        clientId: linkedClient.id,
         serviceId: setup.businessService.id,
         staffMemberId: setup.staffMember.id,
-        startTime: otherSlots[0].startTime
+        startTime: remainingSlots[0].startTime
       })
       .expect(201);
 
@@ -320,15 +474,15 @@ describe("DiscoveryController", () => {
       .set("authorization", `Bearer ${consumer.accessToken}`)
       .expect(404);
 
-    const slots = await fetchConsumerSlots(app, consumer.accessToken, setup, TEST_DATE);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${otherBusiness.id}/appointments`)
-      .set("authorization", `Bearer ${consumer.accessToken}`)
-      .send({
-        serviceId: setup.businessService.id,
-        staffMemberId: setup.staffMember.id,
-        startTime: slots[0].startTime
-      })
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "+1 555-123-4567"
+        })
+      )
       .expect(404);
   });
 });
@@ -419,7 +573,6 @@ async function createStaffMember(app: INestApplication, accessToken: string, bus
 
 async function fetchConsumerSlots(
   app: INestApplication,
-  accessToken: string,
   setup: { business: { id: string }; businessService: { id: string }; staffMember: { id: string } },
   date: string
 ) {
@@ -430,10 +583,23 @@ async function fetchConsumerSlots(
       serviceId: setup.businessService.id,
       staffMemberId: setup.staffMember.id
     })
-    .set("authorization", `Bearer ${accessToken}`)
     .expect(200);
 
   return response.body;
+}
+
+function guestBookingBody(
+  setup: { businessService: { id: string }; staffMember: { id: string } },
+  startTime: string,
+  guest: { displayName: string; phoneNumber: string }
+) {
+  return {
+    displayName: guest.displayName,
+    phoneNumber: guest.phoneNumber,
+    serviceId: setup.businessService.id,
+    staffMemberId: setup.staffMember.id,
+    startTime
+  };
 }
 
 function getSubjectFromJwt(accessToken: string): string {

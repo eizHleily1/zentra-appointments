@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Button, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { DateStripPicker } from "../../components/DateStripPicker";
 import { SlotGrid } from "../../components/SlotGrid";
 import { buildDateStripOptions, formatDateKey } from "../../lib/dates";
@@ -7,15 +7,21 @@ import { formatServicePriceDisplay } from "../../lib/formatters";
 import type { AvailableSlot, BookingConfirmationDetails, PublicBusinessProfile } from "../../lib/types";
 
 export function buildConsumerBookAppointmentPayload(input: {
+  displayName: string;
+  phoneNumber: string;
   serviceId: string;
   staffMemberId: string;
   startTime: string;
 }): {
+  displayName: string;
+  phoneNumber: string;
   serviceId: string;
   staffMemberId: string;
   startTime: string;
 } {
   return {
+    displayName: input.displayName.trim(),
+    phoneNumber: input.phoneNumber.trim(),
     serviceId: input.serviceId,
     staffMemberId: input.staffMemberId,
     startTime: input.startTime
@@ -25,10 +31,8 @@ export function buildConsumerBookAppointmentPayload(input: {
 export function ClientBookAppointmentScreen({
   business,
   initialSelections,
-  isAuthenticated,
   onBack,
   onBooked,
-  onRequireAuth,
   request,
   run
 }: {
@@ -39,10 +43,8 @@ export function ClientBookAppointmentScreen({
     selectedStaffMemberId?: string;
     selectedStartTime?: string;
   };
-  isAuthenticated: boolean;
   onBack: () => void;
   onBooked: (confirmation: BookingConfirmationDetails) => void;
-  onRequireAuth: () => void;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   run: (action: () => Promise<void>, successMessage?: string) => Promise<void>;
 }) {
@@ -54,6 +56,8 @@ export function ClientBookAppointmentScreen({
   );
   const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
   const [selectedStartTime, setSelectedStartTime] = useState(initialSelections?.selectedStartTime ?? "");
+  const [displayName, setDisplayName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
@@ -68,7 +72,7 @@ export function ClientBookAppointmentScreen({
   }, [business.staff, selectedStaffMemberId]);
 
   useEffect(() => {
-    if (!isAuthenticated || !selectedServiceId || !selectedStaffMemberId || !appointmentDate) {
+    if (!selectedServiceId || !selectedStaffMemberId || !appointmentDate) {
       setAvailableSlots([]);
       setSelectedStartTime("");
       return;
@@ -102,7 +106,7 @@ export function ClientBookAppointmentScreen({
     return () => {
       cancelled = true;
     };
-  }, [appointmentDate, business.id, isAuthenticated, request, selectedServiceId, selectedStaffMemberId]);
+  }, [appointmentDate, business.id, request, selectedServiceId, selectedStaffMemberId]);
 
   function resetTimes() {
     setAvailableSlots([]);
@@ -167,69 +171,86 @@ export function ClientBookAppointmentScreen({
             selectedDateKey={appointmentDate}
           />
 
-          {!isAuthenticated ? (
-            <View style={styles.authNotice}>
-              <Text style={styles.authNoticeText}>Sign in to see available times and confirm your booking.</Text>
-              <Pressable onPress={onRequireAuth} style={styles.inlinePrimaryButton}>
-                <Text style={styles.inlinePrimaryButtonText}>Sign in to continue</Text>
-              </Pressable>
-            </View>
-          ) : (
+          <Text style={styles.fieldLabel}>Choose a time</Text>
+          {slotsError ? <Text style={styles.errorText}>{slotsError}</Text> : null}
+          <SlotGrid
+            loading={slotsLoading}
+            onSelect={setSelectedStartTime}
+            selectedStartTime={selectedStartTime}
+            slots={availableSlots}
+          />
+          {selectedService ? (
+            <Text style={styles.durationHint}>{selectedService.durationMinutes} min appointment</Text>
+          ) : null}
+
+          {selectedStartTime ? (
             <>
-              <Text style={styles.fieldLabel}>Choose a time</Text>
-              {slotsError ? <Text style={styles.errorText}>{slotsError}</Text> : null}
-              <SlotGrid
-                loading={slotsLoading}
-                onSelect={setSelectedStartTime}
-                selectedStartTime={selectedStartTime}
-                slots={availableSlots}
+              <Text style={styles.fieldLabel}>Your details</Text>
+              <TextInput
+                autoCapitalize="words"
+                onChangeText={setDisplayName}
+                placeholder="Your name"
+                style={styles.input}
+                value={displayName}
               />
-              {selectedService ? (
-                <Text style={styles.durationHint}>{selectedService.durationMinutes} min appointment</Text>
-              ) : null}
+              <TextInput
+                autoCapitalize="none"
+                keyboardType="phone-pad"
+                onChangeText={setPhoneNumber}
+                placeholder="Phone number"
+                style={styles.input}
+                value={phoneNumber}
+              />
+              <Pressable
+                onPress={() =>
+                  void run(async () => {
+                    if (!selectedService || !selectedStaff) {
+                      throw new Error("Select a service and staff member");
+                    }
 
-              {selectedStartTime ? (
-                <Pressable
-                  onPress={() =>
-                    void run(async () => {
-                      if (!selectedService || !selectedStaff) {
-                        throw new Error("Select a service and staff member");
+                    if (!displayName.trim()) {
+                      throw new Error("Enter your name");
+                    }
+
+                    if (!phoneNumber.trim()) {
+                      throw new Error("Enter a phone number");
+                    }
+
+                    const appointment = await request<{ startsAt: string }>(
+                      `/discovery/businesses/${business.id}/appointments`,
+                      {
+                        body: JSON.stringify(
+                          buildConsumerBookAppointmentPayload({
+                            displayName,
+                            phoneNumber,
+                            serviceId: selectedServiceId,
+                            staffMemberId: selectedStaffMemberId,
+                            startTime: selectedStartTime
+                          })
+                        ),
+                        method: "POST"
                       }
+                    );
 
-                      const appointment = await request<{ startsAt: string }>(
-                        `/discovery/businesses/${business.id}/appointments`,
-                        {
-                          body: JSON.stringify(
-                            buildConsumerBookAppointmentPayload({
-                              serviceId: selectedServiceId,
-                              staffMemberId: selectedStaffMemberId,
-                              startTime: selectedStartTime
-                            })
-                          ),
-                          method: "POST"
-                        }
-                      );
-
-                      onBooked({
-                        businessName: business.name,
-                        serviceName: selectedService.name,
-                        staffName: selectedStaff.displayName,
-                        startsAt: appointment.startsAt,
-                        timezone: business.timezone
-                      });
-                    })
-                  }
-                  style={styles.primaryButton}
-                >
-                  <Text style={styles.primaryButtonText}>Confirm booking</Text>
-                </Pressable>
-              ) : null}
+                    onBooked({
+                      businessName: business.name,
+                      serviceName: selectedService.name,
+                      staffName: selectedStaff.displayName,
+                      startsAt: appointment.startsAt,
+                      timezone: business.timezone
+                    });
+                  })
+                }
+                style={styles.primaryButton}
+              >
+                <Text style={styles.primaryButtonText}>Confirm booking</Text>
+              </Pressable>
             </>
-          )}
+          ) : null}
         </>
       ) : null}
 
-      {slotsLoading && isAuthenticated ? (
+      {slotsLoading ? (
         <View style={styles.bottomLoader}>
           <ActivityIndicator color="#2563eb" />
         </View>
@@ -239,18 +260,6 @@ export function ClientBookAppointmentScreen({
 }
 
 const styles = StyleSheet.create({
-  authNotice: {
-    backgroundColor: "#eff6ff",
-    borderColor: "#bfdbfe",
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 16,
-    padding: 16
-  },
-  authNoticeText: {
-    color: "#1e3a8a",
-    lineHeight: 20
-  },
   bottomLoader: {
     marginTop: 12
   },
@@ -274,16 +283,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 20
   },
-  inlinePrimaryButton: {
-    alignItems: "center",
-    backgroundColor: "#2563eb",
+  input: {
+    backgroundColor: "#ffffff",
+    borderColor: "#cbd5e1",
     borderRadius: 10,
-    marginTop: 12,
-    paddingVertical: 12
-  },
-  inlinePrimaryButtonText: {
-    color: "#ffffff",
-    fontWeight: "700"
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 12
   },
   primaryButton: {
     alignItems: "center",

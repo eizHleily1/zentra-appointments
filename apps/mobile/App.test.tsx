@@ -153,20 +153,27 @@ async function openDowntownBarberProfile() {
   });
 }
 
-async function signInFromBookingPrompt() {
+async function openBookingScreen() {
   fireEvent.press(screen.getByText("Book appointment"));
-
-  await waitFor(() => {
-    expect(screen.getByText("Sign in to book")).toBeTruthy();
-  });
-
-  fireEvent.changeText(screen.getByPlaceholderText("Email"), "client@example.com");
-  fireEvent.changeText(screen.getByPlaceholderText("Password"), "strong-password");
-  fireEvent.press(screen.getByText("Create account"));
 
   await waitFor(() => {
     expect(screen.getByText("Book at Downtown Barber")).toBeTruthy();
   });
+}
+
+async function completeGuestBooking(name = "Maria Lopez", phone = "555-123-4567") {
+  await openBookingScreen();
+
+  fireEvent.press(screen.getByText("Haircut"));
+
+  await waitFor(() => {
+    expect(screen.getByText("10:00")).toBeTruthy();
+  });
+
+  fireEvent.press(screen.getByText("10:00"));
+  fireEvent.changeText(screen.getByPlaceholderText("Your name"), name);
+  fireEvent.changeText(screen.getByPlaceholderText("Phone number"), phone);
+  fireEvent.press(screen.getByText("Confirm booking"));
 }
 
 function pressConsumerTab(label: "Home" | "Explore" | "Schedule" | "Profile") {
@@ -253,32 +260,76 @@ describe("App consumer Home tab from Explore stack", () => {
     expect(screen.queryByText("Book appointment")).toBeNull();
   });
 
+  it("does not open auth when starting a booking", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    fireEvent.press(screen.getByText("Book appointment"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Book at Downtown Barber")).toBeTruthy();
+    });
+    expect(screen.queryByText("Sign in")).toBeNull();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+  });
+
   it("renders Home after Explore → booking flow → Home", async () => {
     render(<App />);
     await openDowntownBarberProfile();
-    await signInFromBookingPrompt();
+    await openBookingScreen();
 
     pressConsumerTab("Home");
 
     await waitFor(() => {
-      expect(screen.getByText("You have no upcoming appointments.")).toBeTruthy();
+      expect(screen.getByText("Browse local businesses and book appointments in one place.")).toBeTruthy();
     });
     expect(screen.queryByText("Book at Downtown Barber")).toBeNull();
+  });
+
+  it("lets a guest book from business profile through confirmation", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+
+    const appointmentCall = findFetchCall("/discovery/businesses/biz-1/appointments");
+    expect(appointmentCall).toBeDefined();
+    expect(JSON.parse(String(appointmentCall?.[1]?.body))).toEqual({
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567",
+      serviceId: "svc-1",
+      staffMemberId: "staff-1",
+      startTime: "2030-07-02T07:00:00.000Z"
+    });
+  });
+
+  it("lets a signed-in consumer book without using JWT identity", async () => {
+    render(<App />);
+    await signInFromProfile();
+    pressConsumerTab("Explore");
+    await openDowntownBarberProfile();
+    await completeGuestBooking("Alex Lopez", "555-000-1111");
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+
+    const appointmentCall = findFetchCall("/discovery/businesses/biz-1/appointments");
+    expect(JSON.parse(String(appointmentCall?.[1]?.body))).toEqual({
+      displayName: "Alex Lopez",
+      phoneNumber: "555-000-1111",
+      serviceId: "svc-1",
+      staffMemberId: "staff-1",
+      startTime: "2030-07-02T07:00:00.000Z"
+    });
   });
 
   it("renders Home after Explore → confirmation → Home", async () => {
     render(<App />);
     await openDowntownBarberProfile();
-    await signInFromBookingPrompt();
-
-    fireEvent.press(screen.getByText("Haircut"));
-
-    await waitFor(() => {
-      expect(screen.getByText("10:00")).toBeTruthy();
-    });
-
-    fireEvent.press(screen.getByText("10:00"));
-    fireEvent.press(screen.getByText("Confirm booking"));
+    await completeGuestBooking();
 
     await waitFor(() => {
       expect(screen.getByText("Appointment confirmed")).toBeTruthy();
@@ -287,7 +338,7 @@ describe("App consumer Home tab from Explore stack", () => {
     pressConsumerTab("Home");
 
     await waitFor(() => {
-      expect(screen.getByText("You have no upcoming appointments.")).toBeTruthy();
+      expect(screen.getByText("Browse local businesses and book appointments in one place.")).toBeTruthy();
     });
     expect(screen.queryByText("Appointment confirmed")).toBeNull();
   });
@@ -497,14 +548,18 @@ describe("BookAppointmentScreen", () => {
 });
 
 describe("buildConsumerBookAppointmentPayload", () => {
-  it("does not include clientId", () => {
+  it("includes guest details and does not include clientId", () => {
     const payload = buildConsumerBookAppointmentPayload({
+      displayName: " Maria Lopez ",
+      phoneNumber: " 555-123-4567 ",
       serviceId: "00000000-0000-4000-8000-000000000002",
       staffMemberId: "00000000-0000-4000-8000-000000000003",
       startTime: "2030-07-02T07:00:00.000Z"
     });
 
     expect(payload).toEqual({
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567",
       serviceId: "00000000-0000-4000-8000-000000000002",
       staffMemberId: "00000000-0000-4000-8000-000000000003",
       startTime: "2030-07-02T07:00:00.000Z"

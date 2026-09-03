@@ -1,7 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
-import type { AuthenticatedUser } from "../auth/authenticated-user";
-import { CurrentUser } from "../auth/current-user.decorator";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { AppointmentsService } from "../appointments/appointments.service";
 import { GetAvailableSlotsQueryDto } from "../appointments/dto/get-available-slots-query.dto";
 import { CreateConsumerAppointmentDto } from "./dto/create-consumer-appointment.dto";
@@ -26,7 +23,6 @@ export class DiscoveryController {
   }
 
   @Get("businesses/:businessId/available-slots")
-  @UseGuards(JwtAuthGuard)
   getAvailableSlots(
     @Param("businessId") businessId: string,
     @Query() query: GetAvailableSlotsQueryDto
@@ -40,16 +36,11 @@ export class DiscoveryController {
   }
 
   @Post("businesses/:businessId/appointments")
-  @UseGuards(JwtAuthGuard)
-  createAppointment(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param("businessId") businessId: string,
-    @Body() body: CreateConsumerAppointmentDto
-  ) {
+  createAppointment(@Param("businessId") businessId: string, @Body() body: CreateConsumerAppointmentDto) {
     return this.appointmentsService.createConsumerAppointment({
       businessId,
-      requesterEmail: user.email,
-      requesterUserId: user.id,
+      displayName: body.displayName,
+      phoneNumber: body.phoneNumber,
       serviceId: body.serviceId,
       staffMemberId: body.staffMemberId,
       startTime: body.startTime

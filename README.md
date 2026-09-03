@@ -611,6 +611,20 @@ pnpm db:init:booking-interval
 
 This adds `booking_interval_minutes` to `tenants` with default `15` and allowed values `5, 10, 15, 20, 30, 60`.
 
+Iteration 14 client identity is initialized explicitly with:
+
+```text
+apps/api/db/iteration-14-client-phone-name-identity.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:client-identity
+```
+
+This replaces the unique active phone-per-business index with a unique index on active clients for `(business_id, normalized phone, normalized display name)` so the same phone number can represent different people.
+
 ### Fresh local database setup
 
 Start PostgreSQL, then apply migrations in order:
@@ -630,6 +644,7 @@ pnpm db:init:clients
 pnpm db:init:appointment-clients
 pnpm db:init:location
 pnpm db:init:booking-interval
+pnpm db:init:client-identity
 ```
 
 Existing databases only need the migrations they have not applied yet. SQL files use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` where possible so re-running a migration is usually safe.

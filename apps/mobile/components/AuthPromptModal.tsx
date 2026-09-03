@@ -17,8 +17,8 @@ export function AuthPromptModal({
     <Modal animationType="slide" transparent visible={visible}>
       <View style={styles.backdrop}>
         <ScrollView contentContainerStyle={styles.sheet}>
-          <Text style={styles.title}>Sign in to book</Text>
-          <Text style={styles.subtitle}>Create an account or sign in to confirm your appointment.</Text>
+          <Text style={styles.title}>Sign in</Text>
+          <Text style={styles.subtitle}>Create an account or sign in to continue.</Text>
           <TextInput
             autoCapitalize="none"
             keyboardType="email-address"

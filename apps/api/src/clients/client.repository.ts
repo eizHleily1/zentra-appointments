@@ -34,9 +34,10 @@ export interface FindClientsOptions {
 export interface ClientRepository {
   createClient(input: CreateClientInput): Promise<Client>;
   deactivateClient(businessId: string, clientId: string): Promise<Client | null>;
-  findActiveClientByNormalizedPhoneForBusiness(
+  findActiveClientByNormalizedPhoneAndNameForBusiness(
     businessId: string,
     normalizedPhone: string,
+    normalizedDisplayName: string,
     excludeClientId?: string
   ): Promise<Client | null>;
   findClientByIdForBusiness(businessId: string, clientId: string): Promise<Client | null>;

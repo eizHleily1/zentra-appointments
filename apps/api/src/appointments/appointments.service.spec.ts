@@ -688,6 +688,150 @@ describe("AppointmentsService", () => {
       })
     ).rejects.toThrow(BadRequestException);
   });
+
+  it("creates a guest appointment with an unlinked business-owned client", async () => {
+    const { business, businessService, staffMember } = await createBookableSetup({
+      businessHoursRepository,
+      businessRepository,
+      clientRepository,
+      serviceRepository,
+      staffRepository
+    });
+    businessRepository.setBusinessStatus(business.id, "ACTIVE");
+
+    const appointment = await service.createConsumerAppointment({
+      businessId: business.id,
+      displayName: "Maria Lopez",
+      phoneNumber: "+1 555-123-4567",
+      serviceId: businessService.id,
+      staffMemberId: staffMember.id,
+      startTime: buildStartTime(TEST_DATE, "10:00")
+    });
+
+    expect(appointment).toMatchObject({
+      clientDisplayName: "Maria Lopez",
+      clientPhoneNumber: "+1 555-123-4567",
+      status: "BOOKED"
+    });
+
+    const guestClient = clientRepository.getClients().find((client) => client.id === appointment.clientId);
+    expect(guestClient).toMatchObject({
+      businessId: business.id,
+      linkedUserId: null
+    });
+  });
+
+  it("reuses a matching guest client and keeps a different name on the same phone separate", async () => {
+    const { business, businessService, staffMember } = await createBookableSetup({
+      businessHoursRepository,
+      businessRepository,
+      clientRepository,
+      serviceRepository,
+      staffRepository
+    });
+    businessRepository.setBusinessStatus(business.id, "ACTIVE");
+
+    const parent = await service.createConsumerAppointment({
+      businessId: business.id,
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567",
+      serviceId: businessService.id,
+      staffMemberId: staffMember.id,
+      startTime: buildStartTime(TEST_DATE, "10:00")
+    });
+    const parentAgain = await service.createConsumerAppointment({
+      businessId: business.id,
+      displayName: "maria lopez",
+      phoneNumber: "(555) 123-4567",
+      serviceId: businessService.id,
+      staffMemberId: staffMember.id,
+      startTime: buildStartTime(TEST_DATE, "10:30")
+    });
+    const child = await service.createConsumerAppointment({
+      businessId: business.id,
+      displayName: "Alex Lopez",
+      phoneNumber: "555-123-4567",
+      serviceId: businessService.id,
+      staffMemberId: staffMember.id,
+      startTime: buildStartTime(TEST_DATE, "11:00")
+    });
+
+    expect(parentAgain.clientId).toBe(parent.clientId);
+    expect(child.clientId).not.toBe(parent.clientId);
+  });
+
+  it("rejects guest bookings with an invalid phone number", async () => {
+    const { business, businessService, staffMember } = await createBookableSetup({
+      businessHoursRepository,
+      businessRepository,
+      clientRepository,
+      serviceRepository,
+      staffRepository
+    });
+    businessRepository.setBusinessStatus(business.id, "ACTIVE");
+
+    await expect(
+      service.createConsumerAppointment({
+        businessId: business.id,
+        displayName: "Maria Lopez",
+        phoneNumber: "abc",
+        serviceId: businessService.id,
+        staffMemberId: staffMember.id,
+        startTime: buildStartTime(TEST_DATE, "10:00")
+      })
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it("applies overlap rules to guest bookings", async () => {
+    const { business, businessService, staffMember } = await createBookableSetup({
+      businessHoursRepository,
+      businessRepository,
+      clientRepository,
+      serviceRepository,
+      staffRepository
+    });
+    businessRepository.setBusinessStatus(business.id, "ACTIVE");
+
+    await service.createConsumerAppointment({
+      businessId: business.id,
+      displayName: "Maria Lopez",
+      phoneNumber: "+1 555-123-4567",
+      serviceId: businessService.id,
+      staffMemberId: staffMember.id,
+      startTime: buildStartTime(TEST_DATE, "10:00")
+    });
+
+    await expect(
+      service.createConsumerAppointment({
+        businessId: business.id,
+        displayName: "Alex Lopez",
+        phoneNumber: "+1 555-123-4567",
+        serviceId: businessService.id,
+        staffMemberId: staffMember.id,
+        startTime: buildStartTime(TEST_DATE, "10:00")
+      })
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it("loads consumer slots without a requester user", async () => {
+    const { business, businessService, staffMember } = await createBookableSetup({
+      businessHoursRepository,
+      businessRepository,
+      clientRepository,
+      serviceRepository,
+      staffRepository
+    });
+    businessRepository.setBusinessStatus(business.id, "ACTIVE");
+
+    const slots = await service.getConsumerAvailableSlots({
+      businessId: business.id,
+      date: TEST_DATE,
+      serviceId: businessService.id,
+      staffMemberId: staffMember.id
+    });
+
+    expect(slots.length).toBeGreaterThan(0);
+  });
 });
 
 async function createBookableSetup(input: {

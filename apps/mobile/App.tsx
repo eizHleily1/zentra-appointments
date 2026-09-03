@@ -84,7 +84,6 @@ export default function App() {
   const [myAppointments, setMyAppointments] = useState<ConsumerAppointment[]>([]);
   const [recentBusinesses, setRecentBusinesses] = useState<Array<{ id: string; name: string }>>([]);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
-  const [pendingBookingBusiness, setPendingBookingBusiness] = useState<PublicBusinessProfile | null>(null);
   const [pendingProfileAuth, setPendingProfileAuth] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [overlayScreen, setOverlayScreen] = useState<OverlayScreen>(null);
@@ -289,19 +288,12 @@ export default function App() {
       const nextBusinesses = await api.request<Business[]>("/businesses");
       setBusinesses(nextBusinesses);
 
-      if (pendingBookingBusiness) {
-        setSelectedDiscoveryBusiness(pendingBookingBusiness);
-        setClientScreen("book");
-        setConsumerTab("explore");
-        setPendingBookingBusiness(null);
-      }
-
       if (pendingProfileAuth) {
         setPendingProfileAuth(false);
         setConsumerTab("profile");
       }
     },
-    [api, pendingBookingBusiness, pendingProfileAuth]
+    [api, pendingProfileAuth]
   );
 
   const openBusinessProfile = useCallback(
@@ -317,12 +309,6 @@ export default function App() {
 
   function startBookingFlow() {
     if (!selectedDiscoveryBusiness || !isBusinessBookable(selectedDiscoveryBusiness)) {
-      return;
-    }
-
-    if (!tokens) {
-      setPendingBookingBusiness(selectedDiscoveryBusiness);
-      setShowAuthPrompt(true);
       return;
     }
 
@@ -596,16 +582,11 @@ export default function App() {
           {clientScreen === "book" && selectedDiscoveryBusiness ? (
             <ClientBookAppointmentScreen
               business={selectedDiscoveryBusiness}
-              isAuthenticated={tokens !== null}
               onBack={() => setClientScreen("profile")}
               onBooked={(confirmation) => {
                 setBookingConfirmation(confirmation);
                 setClientScreen("confirmed");
                 void loadMyAppointments();
-              }}
-              onRequireAuth={() => {
-                setPendingBookingBusiness(selectedDiscoveryBusiness);
-                setShowAuthPrompt(true);
               }}
               request={api.request}
               run={run}
@@ -671,7 +652,6 @@ export default function App() {
       <AuthPromptModal
         onClose={() => {
           setShowAuthPrompt(false);
-          setPendingBookingBusiness(null);
           setPendingProfileAuth(false);
         }}
         onSubmit={async (mode, email, password) => {

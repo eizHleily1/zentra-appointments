@@ -179,7 +179,7 @@ describe("ClientsController", () => {
     });
   });
 
-  it("rejects duplicate active phone numbers within the same business", async () => {
+  it("rejects duplicate active name and phone numbers within the same business", async () => {
     const owner = await registerAndGetIdentity(app, "owner@example.com");
     const business = await createBusiness(app, owner.accessToken, "Owner Business");
 
@@ -191,8 +191,30 @@ describe("ClientsController", () => {
     await request(app.getHttpServer())
       .post(`/businesses/${business.id}/clients`)
       .set("authorization", `Bearer ${owner.accessToken}`)
-      .send({ displayName: "Maria L.", phoneNumber: "(555) 123-4567" })
+      .send({ displayName: "Maria Lopez", phoneNumber: "(555) 123-4567" })
       .expect(409);
+  });
+
+  it("allows the same phone number with a different display name", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const business = await createBusiness(app, owner.accessToken, "Owner Business");
+
+    await createClient(app, owner.accessToken, business.id, {
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567"
+    });
+
+    const child = await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/clients`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .send({ displayName: "Maria L.", phoneNumber: "(555) 123-4567" })
+      .expect(201);
+
+    expect(child.body).toMatchObject({
+      displayName: "Maria L.",
+      linkedUserId: null,
+      phoneNumber: "(555) 123-4567"
+    });
   });
 
   it("allows duplicate names when no phone number is provided", async () => {

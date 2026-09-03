@@ -38,8 +38,8 @@ interface CreateAppointmentCommand {
 
 interface CreateConsumerAppointmentCommand {
   businessId: string;
-  requesterEmail: string;
-  requesterUserId: string;
+  displayName: string;
+  phoneNumber: string;
   serviceId: string;
   staffMemberId: string;
   startTime: string;
@@ -94,10 +94,10 @@ export class AppointmentsService {
       throw new NotFoundException("Business not found");
     }
 
-    const client = await this.clientsService.resolveLinkedClientForUser({
+    const client = await this.clientsService.resolveGuestClient({
       businessId: command.businessId,
-      userEmail: command.requesterEmail,
-      userId: command.requesterUserId
+      displayName: command.displayName,
+      phoneNumber: command.phoneNumber
     });
 
     return this.bookAppointment({

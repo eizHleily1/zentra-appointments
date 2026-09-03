@@ -1,4 +1,4 @@
-import { normalizePhoneNumber } from "../src/clients/client-phone";
+import { normalizeDisplayNameForMatch, normalizePhoneNumber } from "../src/clients/client-phone";
 import type {
   Client,
   ClientRepository,
@@ -14,10 +14,14 @@ export class InMemoryClientRepository implements ClientRepository {
     const normalizedPhone = normalizePhoneNumber(input.phoneNumber);
 
     if (normalizedPhone) {
-      const duplicate = await this.findActiveClientByNormalizedPhoneForBusiness(input.businessId, normalizedPhone);
+      const duplicate = await this.findActiveClientByNormalizedPhoneAndNameForBusiness(
+        input.businessId,
+        normalizedPhone,
+        normalizeDisplayNameForMatch(input.displayName)
+      );
 
       if (duplicate) {
-        const error = new Error("Duplicate client phone");
+        const error = new Error("Duplicate client phone and name");
         Object.assign(error, { code: "23505" });
         throw error;
       }
@@ -90,9 +94,10 @@ export class InMemoryClientRepository implements ClientRepository {
     return Array.from(this.clients.values()).filter((client) => client.linkedUserId === linkedUserId);
   }
 
-  async findActiveClientByNormalizedPhoneForBusiness(
+  async findActiveClientByNormalizedPhoneAndNameForBusiness(
     businessId: string,
     normalizedPhone: string,
+    normalizedDisplayName: string,
     excludeClientId?: string
   ): Promise<Client | null> {
     return (
@@ -105,7 +110,10 @@ export class InMemoryClientRepository implements ClientRepository {
           return false;
         }
 
-        return normalizePhoneNumber(client.phoneNumber) === normalizedPhone;
+        return (
+          normalizePhoneNumber(client.phoneNumber) === normalizedPhone &&
+          normalizeDisplayNameForMatch(client.displayName) === normalizedDisplayName
+        );
       }) ?? null
     );
   }
@@ -118,17 +126,19 @@ export class InMemoryClientRepository implements ClientRepository {
     }
 
     const nextPhoneNumber = input.phoneNumber === undefined ? client.phoneNumber : input.phoneNumber;
+    const nextDisplayName = input.displayName ?? client.displayName;
     const normalizedPhone = normalizePhoneNumber(nextPhoneNumber);
 
     if (normalizedPhone) {
-      const duplicate = await this.findActiveClientByNormalizedPhoneForBusiness(
+      const duplicate = await this.findActiveClientByNormalizedPhoneAndNameForBusiness(
         businessId,
         normalizedPhone,
+        normalizeDisplayNameForMatch(nextDisplayName),
         clientId
       );
 
       if (duplicate) {
-        const error = new Error("Duplicate client phone");
+        const error = new Error("Duplicate client phone and name");
         Object.assign(error, { code: "23505" });
         throw error;
       }

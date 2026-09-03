@@ -63,7 +63,27 @@ describe("ClientsService", () => {
     });
   });
 
-  it("rejects duplicate active phone numbers within the same business", async () => {
+  it("rejects duplicate active name and phone numbers within the same business", async () => {
+    const business = await createBusiness(businessRepository);
+
+    await service.createClient({
+      businessId: business.id,
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567",
+      requesterUserId: "owner-user"
+    });
+
+    await expect(
+      service.createClient({
+        businessId: business.id,
+        displayName: "Maria Lopez",
+        phoneNumber: "(555) 123-4567",
+        requesterUserId: "owner-user"
+      })
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it("allows the same phone number with a different display name", async () => {
     const business = await createBusiness(businessRepository);
 
     await service.createClient({
@@ -80,7 +100,11 @@ describe("ClientsService", () => {
         phoneNumber: "(555) 123-4567",
         requesterUserId: "owner-user"
       })
-    ).rejects.toThrow(ConflictException);
+    ).resolves.toMatchObject({
+      displayName: "Maria L.",
+      linkedUserId: null,
+      phoneNumber: "(555) 123-4567"
+    });
   });
 
   it("allows duplicate names when no phone number is provided", async () => {
@@ -196,6 +220,58 @@ describe("ClientsService", () => {
       clientDisplayName: "Maria Lopez",
       clientPhoneNumber: "+1 555-123-4567"
     });
+  });
+
+  it("resolves a guest client without a linked user and reuses matching name and phone", async () => {
+    const business = await createBusiness(businessRepository);
+
+    const firstClient = await service.resolveGuestClient({
+      businessId: business.id,
+      displayName: "  Maria Lopez ",
+      phoneNumber: "555-123-4567"
+    });
+    const reusedClient = await service.resolveGuestClient({
+      businessId: business.id,
+      displayName: "maria lopez",
+      phoneNumber: "(555) 123-4567"
+    });
+    const childClient = await service.resolveGuestClient({
+      businessId: business.id,
+      displayName: "Alex Lopez",
+      phoneNumber: "555-123-4567"
+    });
+
+    expect(firstClient).toMatchObject({
+      businessId: business.id,
+      displayName: "Maria Lopez",
+      linkedUserId: null,
+      phoneNumber: "555-123-4567"
+    });
+    expect(reusedClient.id).toBe(firstClient.id);
+    expect(childClient.id).not.toBe(firstClient.id);
+    expect(childClient).toMatchObject({
+      displayName: "Alex Lopez",
+      linkedUserId: null
+    });
+  });
+
+  it("rejects guest clients without a usable phone number", async () => {
+    const business = await createBusiness(businessRepository);
+
+    await expect(
+      service.resolveGuestClient({
+        businessId: business.id,
+        displayName: "Maria Lopez",
+        phoneNumber: "   "
+      })
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.resolveGuestClient({
+        businessId: business.id,
+        displayName: "Maria Lopez",
+        phoneNumber: "abc"
+      })
+    ).rejects.toThrow(BadRequestException);
   });
 });
 
