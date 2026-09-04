@@ -73,38 +73,35 @@ async function resolveGuestClientInTransaction(
     return existing;
   }
 
-  try {
-    const inserted = await tx.query<ClientRow>(
-      `
-        INSERT INTO clients (
-          id,
-          business_id,
-          display_name,
-          phone_number,
-          email,
-          linked_user_id,
-          active
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, true)
-        RETURNING *
-      `,
-      [randomUUID(), guest.businessId, guest.displayName, guest.phoneNumber, null, null]
-    );
+  const inserted = await tx.query<ClientRow>(
+    `
+      INSERT INTO clients (
+        id,
+        business_id,
+        display_name,
+        phone_number,
+        email,
+        linked_user_id,
+        active
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, true)
+      ON CONFLICT DO NOTHING
+      RETURNING *
+    `,
+    [randomUUID(), guest.businessId, guest.displayName, guest.phoneNumber, null, null]
+  );
 
+  if (inserted.rows[0]) {
     return mapClient(inserted.rows[0]);
-  } catch (error) {
-    if (!isPostgresUniqueViolation(error)) {
-      throw error;
-    }
-
-    const raced = await findGuestClient(tx, guest);
-
-    if (!raced) {
-      throw error;
-    }
-
-    return raced;
   }
+
+  const raced = await findGuestClient(tx, guest);
+
+  if (!raced) {
+    throw new Error("Guest client identity was not found after a concurrent insert");
+  }
+
+  return raced;
 }
 
 async function findGuestClient(tx: DatabaseTransactionClient, guest: GuestClientIdentity): Promise<Client | null> {
@@ -208,6 +205,3 @@ function mapAppointment(row: AppointmentRow): Appointment {
   };
 }
 
-function isPostgresUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-}

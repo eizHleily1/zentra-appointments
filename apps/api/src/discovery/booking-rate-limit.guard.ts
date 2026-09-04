@@ -8,7 +8,6 @@ interface RateLimitBucket {
 }
 
 interface RequestLike {
-  headers: Record<string, string | string[] | undefined>;
   ip?: string;
   socket?: {
     remoteAddress?: string;
@@ -43,8 +42,6 @@ export class BookingRateLimitGuard implements CanActivate {
   }
 
   private getClientKey(request: RequestLike): string {
-    const forwardedFor = request.headers["x-forwarded-for"];
-    const forwardedValue = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
-    return forwardedValue?.split(",")[0]?.trim() || request.ip || request.socket?.remoteAddress || "unknown";
+    return request.ip || request.socket?.remoteAddress || "unknown";
   }
 }

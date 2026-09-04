@@ -285,7 +285,6 @@ describe("DiscoveryController", () => {
 
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("x-forwarded-for", "198.51.100.11")
       .send({
         phoneNumber: "+1 555-123-4567",
         serviceId: setup.businessService.id,
@@ -296,7 +295,6 @@ describe("DiscoveryController", () => {
 
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("x-forwarded-for", "198.51.100.12")
       .send({
         displayName: "Maria Lopez",
         serviceId: setup.businessService.id,
@@ -307,7 +305,6 @@ describe("DiscoveryController", () => {
 
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("x-forwarded-for", "198.51.100.13")
       .send(
         guestBookingBody(setup, slots[0].startTime, {
           displayName: "Maria Lopez",
@@ -326,7 +323,6 @@ describe("DiscoveryController", () => {
 
     const parent = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("x-forwarded-for", "198.51.100.21")
       .send(
         guestBookingBody(setup, slots[0].startTime, {
           displayName: "Maria Lopez",
@@ -338,7 +334,6 @@ describe("DiscoveryController", () => {
     const remainingAfterParent = await fetchConsumerSlots(app, setup, TEST_DATE);
     const parentAgain = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("x-forwarded-for", "198.51.100.22")
       .send(
         guestBookingBody(setup, remainingAfterParent[0].startTime, {
           displayName: "  maria lopez ",
@@ -350,7 +345,6 @@ describe("DiscoveryController", () => {
     const remainingAfterParentAgain = await fetchConsumerSlots(app, setup, TEST_DATE);
     const child = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
-      .set("x-forwarded-for", "198.51.100.23")
       .send(
         guestBookingBody(setup, remainingAfterParentAgain[0].startTime, {
           displayName: "Alex Lopez",
@@ -395,21 +389,20 @@ describe("DiscoveryController", () => {
     expect(clientRepository.getClients().filter((client) => client.displayName === "Alex Lopez")).toEqual([]);
   });
 
-  it("rate limits public guest booking attempts", async () => {
-    const ip = "198.51.100.80";
+  it("rate limits public guest booking attempts from the connection address", async () => {
     const businessId = randomUUID();
+    const max = Number(process.env.GUEST_BOOKING_RATE_LIMIT_MAX ?? 10);
 
-    await request(app.getHttpServer())
-      .post(`/discovery/businesses/${businessId}/appointments`)
-      .set("x-forwarded-for", ip)
-      .send({});
-    await request(app.getHttpServer())
-      .post(`/discovery/businesses/${businessId}/appointments`)
-      .set("x-forwarded-for", ip)
-      .send({});
+    for (let attempt = 0; attempt < max; attempt += 1) {
+      await request(app.getHttpServer())
+        .post(`/discovery/businesses/${businessId}/appointments`)
+        .set("x-forwarded-for", `198.51.100.${attempt}`)
+        .send({});
+    }
+
     const response = await request(app.getHttpServer())
       .post(`/discovery/businesses/${businessId}/appointments`)
-      .set("x-forwarded-for", ip)
+      .set("x-forwarded-for", "203.0.113.1")
       .send({})
       .expect(429);
 
