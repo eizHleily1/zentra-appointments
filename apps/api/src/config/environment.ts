@@ -8,6 +8,8 @@ export interface AppConfig {
   AUTH_REGISTER_RATE_LIMIT_MAX: number;
   AUTH_REGISTER_RATE_LIMIT_TTL_SECONDS: number;
   DATABASE_URL: string;
+  GUEST_BOOKING_RATE_LIMIT_MAX: number;
+  GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS: number;
   JWT_ACCESS_TOKEN_EXPIRES_IN: string;
   JWT_ACCESS_TOKEN_SECRET: string;
   NODE_ENV: AppEnvironment;
@@ -32,6 +34,8 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
   const authLoginRateLimitTtlSeconds = Number(config.AUTH_LOGIN_RATE_LIMIT_TTL_SECONDS ?? 60);
   const authRefreshRateLimitMax = Number(config.AUTH_REFRESH_RATE_LIMIT_MAX ?? 20);
   const authRefreshRateLimitTtlSeconds = Number(config.AUTH_REFRESH_RATE_LIMIT_TTL_SECONDS ?? 60);
+  const guestBookingRateLimitMax = Number(config.GUEST_BOOKING_RATE_LIMIT_MAX ?? 10);
+  const guestBookingRateLimitTtlSeconds = Number(config.GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS ?? 60);
 
   if (!allowedEnvironments.includes(nodeEnv as AppEnvironment)) {
     throw new Error("NODE_ENV must be development, test, or production");
@@ -75,6 +79,8 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
   assertPositiveInteger(authLoginRateLimitTtlSeconds, "AUTH_LOGIN_RATE_LIMIT_TTL_SECONDS");
   assertPositiveInteger(authRefreshRateLimitMax, "AUTH_REFRESH_RATE_LIMIT_MAX");
   assertPositiveInteger(authRefreshRateLimitTtlSeconds, "AUTH_REFRESH_RATE_LIMIT_TTL_SECONDS");
+  assertPositiveInteger(guestBookingRateLimitMax, "GUEST_BOOKING_RATE_LIMIT_MAX");
+  assertPositiveInteger(guestBookingRateLimitTtlSeconds, "GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS");
 
   return {
     AUTH_LOGIN_RATE_LIMIT_MAX: authLoginRateLimitMax,
@@ -84,6 +90,8 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
     AUTH_REGISTER_RATE_LIMIT_MAX: authRegisterRateLimitMax,
     AUTH_REGISTER_RATE_LIMIT_TTL_SECONDS: authRegisterRateLimitTtlSeconds,
     DATABASE_URL: databaseUrl,
+    GUEST_BOOKING_RATE_LIMIT_MAX: guestBookingRateLimitMax,
+    GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS: guestBookingRateLimitTtlSeconds,
     JWT_ACCESS_TOKEN_EXPIRES_IN: jwtAccessTokenExpiresIn,
     JWT_ACCESS_TOKEN_SECRET: jwtAccessTokenSecret,
     NODE_ENV: nodeEnv as AppEnvironment,

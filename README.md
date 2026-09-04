@@ -53,7 +53,7 @@ Implemented authentication capabilities:
 - Hashed refresh token storage.
 - Account status support: `ACTIVE` and `DISABLED`.
 - Login and refresh rejection for `DISABLED` accounts.
-- Basic in-process rate limiting for registration, login, and refresh endpoints.
+- Basic in-process rate limiting for registration, login, refresh, and public guest booking endpoints.
 - Authentication environment configuration.
 - Authentication tests.
 

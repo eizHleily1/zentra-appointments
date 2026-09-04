@@ -3,7 +3,9 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { APPOINTMENT_REPOSITORY } from "../src/appointments/appointment.repository";
+import { GUEST_BOOKING_REPOSITORY } from "../src/appointments/guest-booking.repository";
 import { PostgresAppointmentRepository } from "../src/appointments/postgres-appointment.repository";
+import { PostgresGuestBookingRepository } from "../src/appointments/postgres-guest-booking.repository";
 import { zonedLocalToUtc } from "../src/appointments/scheduling";
 import { AUTH_REPOSITORY } from "../src/auth/auth.repository";
 import { PostgresAuthRepository } from "../src/auth/postgres-auth.repository";
@@ -22,6 +24,7 @@ import { InMemoryAuthRepository } from "./in-memory-auth.repository";
 import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 import { InMemoryClientRepository } from "./in-memory-client.repository";
+import { InMemoryGuestBookingRepository } from "./in-memory-guest-booking.repository";
 import { InMemoryServiceRepository } from "./in-memory-service.repository";
 import { InMemoryStaffRepository } from "./in-memory-staff.repository";
 
@@ -33,13 +36,18 @@ describe("ClientsController", () => {
 
   beforeEach(async () => {
     clientRepository = new InMemoryClientRepository();
+    const appointmentRepository = new InMemoryAppointmentRepository();
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     })
       .overrideProvider(APPOINTMENT_REPOSITORY)
-      .useValue(new InMemoryAppointmentRepository())
+      .useValue(appointmentRepository)
       .overrideProvider(PostgresAppointmentRepository)
+      .useValue({})
+      .overrideProvider(GUEST_BOOKING_REPOSITORY)
+      .useValue(new InMemoryGuestBookingRepository(clientRepository, appointmentRepository))
+      .overrideProvider(PostgresGuestBookingRepository)
       .useValue({})
       .overrideProvider(AUTH_REPOSITORY)
       .useValue(new InMemoryAuthRepository())

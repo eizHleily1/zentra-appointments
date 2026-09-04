@@ -11,11 +11,13 @@ import { InMemoryAppointmentRepository } from "../../test/in-memory-appointment.
 import { InMemoryBusinessRepository } from "../../test/in-memory-business.repository";
 import { InMemoryServiceRepository } from "../../test/in-memory-service.repository";
 import { InMemoryClientRepository } from "../../test/in-memory-client.repository";
+import { InMemoryGuestBookingRepository } from "../../test/in-memory-guest-booking.repository";
 import { CLIENT_REPOSITORY } from "../clients/client.repository";
 import { ClientsService } from "../clients/clients.service";
 import { InMemoryStaffRepository } from "../../test/in-memory-staff.repository";
 import { APPOINTMENT_REPOSITORY } from "./appointment.repository";
 import { AppointmentsService } from "./appointments.service";
+import { GUEST_BOOKING_REPOSITORY } from "./guest-booking.repository";
 import { zonedLocalToUtc } from "./scheduling";
 
 const TEST_DATE = "2030-07-02";
@@ -45,6 +47,10 @@ describe("AppointmentsService", () => {
         {
           provide: APPOINTMENT_REPOSITORY,
           useValue: appointmentRepository
+        },
+        {
+          provide: GUEST_BOOKING_REPOSITORY,
+          useValue: new InMemoryGuestBookingRepository(clientRepository, appointmentRepository)
         },
         {
           provide: BUSINESS_REPOSITORY,
@@ -719,6 +725,10 @@ describe("AppointmentsService", () => {
       businessId: business.id,
       linkedUserId: null
     });
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Maria Lopez")).toHaveLength(1);
+    expect(appointmentRepository.getAppointments().filter((item) => item.clientId === appointment.clientId)).toHaveLength(
+      1
+    );
   });
 
   it("reuses a matching guest client and keeps a different name on the same phone separate", async () => {
@@ -758,6 +768,8 @@ describe("AppointmentsService", () => {
 
     expect(parentAgain.clientId).toBe(parent.clientId);
     expect(child.clientId).not.toBe(parent.clientId);
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Maria Lopez")).toHaveLength(1);
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Alex Lopez")).toHaveLength(1);
   });
 
   it("rejects guest bookings with an invalid phone number", async () => {
@@ -780,6 +792,31 @@ describe("AppointmentsService", () => {
         startTime: buildStartTime(TEST_DATE, "10:00")
       })
     ).rejects.toThrow(BadRequestException);
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Maria Lopez")).toEqual([]);
+  });
+
+  it("does not keep a new guest client when the slot is in the past", async () => {
+    const { business, businessService, staffMember } = await createBookableSetup({
+      businessHoursRepository,
+      businessRepository,
+      clientRepository,
+      serviceRepository,
+      staffRepository
+    });
+    businessRepository.setBusinessStatus(business.id, "ACTIVE");
+
+    await expect(
+      service.createConsumerAppointment({
+        businessId: business.id,
+        displayName: "Maria Lopez",
+        phoneNumber: "+1 555-123-4567",
+        serviceId: businessService.id,
+        staffMemberId: staffMember.id,
+        startTime: buildStartTime("2020-07-01", "10:00")
+      })
+    ).rejects.toThrow(BadRequestException);
+
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Maria Lopez")).toEqual([]);
   });
 
   it("applies overlap rules to guest bookings", async () => {
@@ -811,6 +848,43 @@ describe("AppointmentsService", () => {
         startTime: buildStartTime(TEST_DATE, "10:00")
       })
     ).rejects.toThrow(ConflictException);
+
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Maria Lopez")).toHaveLength(1);
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Alex Lopez")).toEqual([]);
+  });
+
+  it("does not duplicate a guest client for concurrent same phone and name bookings", async () => {
+    const { business, businessService, staffMember } = await createBookableSetup({
+      businessHoursRepository,
+      businessRepository,
+      clientRepository,
+      serviceRepository,
+      staffRepository
+    });
+    businessRepository.setBusinessStatus(business.id, "ACTIVE");
+
+    const [first, second] = await Promise.all([
+      service.createConsumerAppointment({
+        businessId: business.id,
+        displayName: "Maria Lopez",
+        phoneNumber: "555-123-4567",
+        serviceId: businessService.id,
+        staffMemberId: staffMember.id,
+        startTime: buildStartTime(TEST_DATE, "10:00")
+      }),
+      service.createConsumerAppointment({
+        businessId: business.id,
+        displayName: "maria lopez",
+        phoneNumber: "(555) 123-4567",
+        serviceId: businessService.id,
+        staffMemberId: staffMember.id,
+        startTime: buildStartTime(TEST_DATE, "10:30")
+      })
+    ]);
+
+    expect(first.clientId).toBe(second.clientId);
+    expect(clientRepository.getClients().filter((item) => item.displayName === "Maria Lopez")).toHaveLength(1);
+    expect(appointmentRepository.getAppointments().filter((item) => item.clientId === first.clientId)).toHaveLength(2);
   });
 
   it("loads consumer slots without a requester user", async () => {

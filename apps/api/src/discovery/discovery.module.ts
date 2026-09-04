@@ -6,10 +6,11 @@ import { ServicesModule } from "../services/services.module";
 import { StaffModule } from "../staff/staff.module";
 import { DiscoveryController } from "./discovery.controller";
 import { DiscoveryService } from "./discovery.service";
+import { BookingRateLimitGuard } from "./booking-rate-limit.guard";
 
 @Module({
   controllers: [DiscoveryController],
   imports: [AppointmentsModule, AuthModule, BusinessesModule, ServicesModule, StaffModule],
-  providers: [DiscoveryService]
+  providers: [BookingRateLimitGuard, DiscoveryService]
 })
 export class DiscoveryModule {}

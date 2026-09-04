@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { AppointmentsService } from "../appointments/appointments.service";
 import { GetAvailableSlotsQueryDto } from "../appointments/dto/get-available-slots-query.dto";
+import { BookingRateLimitGuard } from "./booking-rate-limit.guard";
 import { CreateConsumerAppointmentDto } from "./dto/create-consumer-appointment.dto";
 import { ListDiscoveryBusinessesQueryDto } from "./dto/list-discovery-businesses-query.dto";
 import { DiscoveryService } from "./discovery.service";
@@ -36,6 +37,7 @@ export class DiscoveryController {
   }
 
   @Post("businesses/:businessId/appointments")
+  @UseGuards(BookingRateLimitGuard)
   createAppointment(@Param("businessId") businessId: string, @Body() body: CreateConsumerAppointmentDto) {
     return this.appointmentsService.createConsumerAppointment({
       businessId,

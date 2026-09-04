@@ -4,9 +4,9 @@ import {
   APPOINTMENT_REPOSITORY,
   type AppointmentRepository
 } from "../appointments/appointment.repository";
+import type { GuestClientIdentity } from "../appointments/guest-booking.repository";
 import { BUSINESS_REPOSITORY, type BusinessRepository } from "../businesses/business.repository";
 import type { ClientDetailsResponse, ClientSummary } from "./client-responses";
-import { deriveClientDisplayNameFromEmail } from "./legacy-client-backfill";
 import { normalizeDisplayNameForMatch, normalizeOptionalEmail, normalizePhoneNumber } from "./client-phone";
 import { CLIENT_REPOSITORY, type Client, type ClientRepository } from "./client.repository";
 
@@ -183,11 +183,11 @@ export class ClientsService {
     return client;
   }
 
-  async resolveGuestClient(input: {
+  normalizeGuestClient(input: {
     businessId: string;
     displayName: string;
     phoneNumber: string;
-  }): Promise<Client> {
+  }): GuestClientIdentity {
     const displayName = normalizeRequiredText(input.displayName, "Enter your name");
     const phoneNumber = requirePhoneNumberForStorage(input.phoneNumber);
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
@@ -196,77 +196,13 @@ export class ClientsService {
       throw new BadRequestException("Enter a valid phone number");
     }
 
-    const existingClient = await this.clientRepository.findActiveClientByNormalizedPhoneAndNameForBusiness(
-      input.businessId,
-      normalizedPhone,
-      normalizeDisplayNameForMatch(displayName)
-    );
-
-    if (existingClient) {
-      return existingClient;
-    }
-
-    try {
-      return await this.clientRepository.createClient({
-        businessId: input.businessId,
-        displayName,
-        email: null,
-        id: randomUUID(),
-        linkedUserId: null,
-        phoneNumber
-      });
-    } catch (error) {
-      if (isPostgresUniqueViolation(error)) {
-        const racedClient = await this.clientRepository.findActiveClientByNormalizedPhoneAndNameForBusiness(
-          input.businessId,
-          normalizedPhone,
-          normalizeDisplayNameForMatch(displayName)
-        );
-
-        if (racedClient) {
-          return racedClient;
-        }
-
-        throw new ConflictException("A client with this name and phone number already exists");
-      }
-
-      if (isPostgresForeignKeyViolation(error)) {
-        throw new BadRequestException("Business does not exist");
-      }
-
-      throw error;
-    }
-  }
-
-  async resolveLinkedClientForUser(input: {
-    businessId: string;
-    userEmail: string;
-    userId: string;
-  }): Promise<Client> {
-    const existingClient = await this.clientRepository.findClientByLinkedUserIdForBusiness(
-      input.businessId,
-      input.userId
-    );
-
-    if (existingClient) {
-      if (!existingClient.active) {
-        throw new BadRequestException("Client is not available");
-      }
-
-      return existingClient;
-    }
-
-    const displayName = deriveClientDisplayNameFromEmail(input.userEmail);
-    const email = normalizeOptionalEmail(input.userEmail);
-
-    return this.clientRepository.createClient({
+    return {
       businessId: input.businessId,
       displayName,
-      email,
-      id: randomUUID(),
-      linkedUserId: input.userId,
-      phoneNumber: null
-    });
+      normalizedDisplayName: normalizeDisplayNameForMatch(displayName),
+      normalizedPhone,
+      phoneNumber
+    };
   }
 
   findClientsLinkedToUser(userId: string): Promise<Client[]> {

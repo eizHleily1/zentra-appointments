@@ -4,7 +4,9 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { APPOINTMENT_REPOSITORY } from "../src/appointments/appointment.repository";
+import { GUEST_BOOKING_REPOSITORY } from "../src/appointments/guest-booking.repository";
 import { PostgresAppointmentRepository } from "../src/appointments/postgres-appointment.repository";
+import { PostgresGuestBookingRepository } from "../src/appointments/postgres-guest-booking.repository";
 import { AUTH_REPOSITORY } from "../src/auth/auth.repository";
 import { PostgresAuthRepository } from "../src/auth/postgres-auth.repository";
 import { BUSINESS_HOURS_REPOSITORY } from "../src/businesses/business-hours.repository";
@@ -22,6 +24,7 @@ import { InMemoryAuthRepository } from "./in-memory-auth.repository";
 import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 import { InMemoryClientRepository } from "./in-memory-client.repository";
+import { InMemoryGuestBookingRepository } from "./in-memory-guest-booking.repository";
 import { InMemoryServiceRepository } from "./in-memory-service.repository";
 import { InMemoryStaffRepository } from "./in-memory-staff.repository";
 
@@ -29,10 +32,12 @@ const TEST_DATE = "2030-07-02";
 
 describe("DiscoveryController", () => {
   let app: INestApplication;
+  let appointmentRepository: InMemoryAppointmentRepository;
   let businessRepository: InMemoryBusinessRepository;
   let clientRepository: InMemoryClientRepository;
 
   beforeEach(async () => {
+    appointmentRepository = new InMemoryAppointmentRepository();
     businessRepository = new InMemoryBusinessRepository();
     clientRepository = new InMemoryClientRepository();
 
@@ -40,8 +45,12 @@ describe("DiscoveryController", () => {
       imports: [AppModule]
     })
       .overrideProvider(APPOINTMENT_REPOSITORY)
-      .useValue(new InMemoryAppointmentRepository())
+      .useValue(appointmentRepository)
       .overrideProvider(PostgresAppointmentRepository)
+      .useValue({})
+      .overrideProvider(GUEST_BOOKING_REPOSITORY)
+      .useValue(new InMemoryGuestBookingRepository(clientRepository, appointmentRepository))
+      .overrideProvider(PostgresGuestBookingRepository)
       .useValue({})
       .overrideProvider(AUTH_REPOSITORY)
       .useValue(new InMemoryAuthRepository())
@@ -276,6 +285,7 @@ describe("DiscoveryController", () => {
 
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .set("x-forwarded-for", "198.51.100.11")
       .send({
         phoneNumber: "+1 555-123-4567",
         serviceId: setup.businessService.id,
@@ -286,6 +296,7 @@ describe("DiscoveryController", () => {
 
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .set("x-forwarded-for", "198.51.100.12")
       .send({
         displayName: "Maria Lopez",
         serviceId: setup.businessService.id,
@@ -296,6 +307,7 @@ describe("DiscoveryController", () => {
 
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .set("x-forwarded-for", "198.51.100.13")
       .send(
         guestBookingBody(setup, slots[0].startTime, {
           displayName: "Maria Lopez",
@@ -314,6 +326,7 @@ describe("DiscoveryController", () => {
 
     const parent = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .set("x-forwarded-for", "198.51.100.21")
       .send(
         guestBookingBody(setup, slots[0].startTime, {
           displayName: "Maria Lopez",
@@ -325,6 +338,7 @@ describe("DiscoveryController", () => {
     const remainingAfterParent = await fetchConsumerSlots(app, setup, TEST_DATE);
     const parentAgain = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .set("x-forwarded-for", "198.51.100.22")
       .send(
         guestBookingBody(setup, remainingAfterParent[0].startTime, {
           displayName: "  maria lopez ",
@@ -336,6 +350,7 @@ describe("DiscoveryController", () => {
     const remainingAfterParentAgain = await fetchConsumerSlots(app, setup, TEST_DATE);
     const child = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .set("x-forwarded-for", "198.51.100.23")
       .send(
         guestBookingBody(setup, remainingAfterParentAgain[0].startTime, {
           displayName: "Alex Lopez",
@@ -375,6 +390,30 @@ describe("DiscoveryController", () => {
         })
       )
       .expect(409);
+
+    expect(clientRepository.getClients().filter((client) => client.displayName === "Maria Lopez")).toHaveLength(1);
+    expect(clientRepository.getClients().filter((client) => client.displayName === "Alex Lopez")).toEqual([]);
+  });
+
+  it("rate limits public guest booking attempts", async () => {
+    const ip = "198.51.100.80";
+    const businessId = randomUUID();
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${businessId}/appointments`)
+      .set("x-forwarded-for", ip)
+      .send({});
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${businessId}/appointments`)
+      .set("x-forwarded-for", ip)
+      .send({});
+    const response = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${businessId}/appointments`)
+      .set("x-forwarded-for", ip)
+      .send({})
+      .expect(429);
+
+    expect(response.body.message).toBe("Too many booking attempts");
   });
 
   it("does not attach guest bookings to a signed-in user's linked appointments", async () => {

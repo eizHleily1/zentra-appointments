@@ -14,7 +14,7 @@ export class InMemoryClientRepository implements ClientRepository {
     const normalizedPhone = normalizePhoneNumber(input.phoneNumber);
 
     if (normalizedPhone) {
-      const duplicate = await this.findActiveClientByNormalizedPhoneAndNameForBusiness(
+      const duplicate = this.matchActiveClientByNormalizedPhoneAndName(
         input.businessId,
         normalizedPhone,
         normalizeDisplayNameForMatch(input.displayName)
@@ -100,21 +100,11 @@ export class InMemoryClientRepository implements ClientRepository {
     normalizedDisplayName: string,
     excludeClientId?: string
   ): Promise<Client | null> {
-    return (
-      Array.from(this.clients.values()).find((client) => {
-        if (client.businessId !== businessId || !client.active) {
-          return false;
-        }
-
-        if (excludeClientId && client.id === excludeClientId) {
-          return false;
-        }
-
-        return (
-          normalizePhoneNumber(client.phoneNumber) === normalizedPhone &&
-          normalizeDisplayNameForMatch(client.displayName) === normalizedDisplayName
-        );
-      }) ?? null
+    return this.matchActiveClientByNormalizedPhoneAndName(
+      businessId,
+      normalizedPhone,
+      normalizedDisplayName,
+      excludeClientId
     );
   }
 
@@ -175,5 +165,33 @@ export class InMemoryClientRepository implements ClientRepository {
 
   getClients(): Client[] {
     return Array.from(this.clients.values());
+  }
+
+  removeClient(clientId: string): void {
+    this.clients.delete(clientId);
+  }
+
+  private matchActiveClientByNormalizedPhoneAndName(
+    businessId: string,
+    normalizedPhone: string,
+    normalizedDisplayName: string,
+    excludeClientId?: string
+  ): Client | null {
+    return (
+      Array.from(this.clients.values()).find((client) => {
+        if (client.businessId !== businessId || !client.active) {
+          return false;
+        }
+
+        if (excludeClientId && client.id === excludeClientId) {
+          return false;
+        }
+
+        return (
+          normalizePhoneNumber(client.phoneNumber) === normalizedPhone &&
+          normalizeDisplayNameForMatch(client.displayName) === normalizedDisplayName
+        );
+      }) ?? null
+    );
   }
 }

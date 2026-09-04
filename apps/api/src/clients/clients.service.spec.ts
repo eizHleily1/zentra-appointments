@@ -222,56 +222,38 @@ describe("ClientsService", () => {
     });
   });
 
-  it("resolves a guest client without a linked user and reuses matching name and phone", async () => {
-    const business = await createBusiness(businessRepository);
-
-    const firstClient = await service.resolveGuestClient({
-      businessId: business.id,
+  it("normalizes guest identity without creating a client", () => {
+    const identity = service.normalizeGuestClient({
+      businessId: "business-1",
       displayName: "  Maria Lopez ",
       phoneNumber: "555-123-4567"
     });
-    const reusedClient = await service.resolveGuestClient({
-      businessId: business.id,
-      displayName: "maria lopez",
-      phoneNumber: "(555) 123-4567"
-    });
-    const childClient = await service.resolveGuestClient({
-      businessId: business.id,
-      displayName: "Alex Lopez",
-      phoneNumber: "555-123-4567"
-    });
 
-    expect(firstClient).toMatchObject({
-      businessId: business.id,
+    expect(identity).toEqual({
+      businessId: "business-1",
       displayName: "Maria Lopez",
-      linkedUserId: null,
+      normalizedDisplayName: "maria lopez",
+      normalizedPhone: "5551234567",
       phoneNumber: "555-123-4567"
     });
-    expect(reusedClient.id).toBe(firstClient.id);
-    expect(childClient.id).not.toBe(firstClient.id);
-    expect(childClient).toMatchObject({
-      displayName: "Alex Lopez",
-      linkedUserId: null
-    });
+    expect(clientRepository.getClients()).toEqual([]);
   });
 
-  it("rejects guest clients without a usable phone number", async () => {
-    const business = await createBusiness(businessRepository);
-
-    await expect(
-      service.resolveGuestClient({
-        businessId: business.id,
+  it("rejects guest clients without a usable phone number", () => {
+    expect(() =>
+      service.normalizeGuestClient({
+        businessId: "business-1",
         displayName: "Maria Lopez",
         phoneNumber: "   "
       })
-    ).rejects.toThrow(BadRequestException);
-    await expect(
-      service.resolveGuestClient({
-        businessId: business.id,
+    ).toThrow(BadRequestException);
+    expect(() =>
+      service.normalizeGuestClient({
+        businessId: "business-1",
         displayName: "Maria Lopez",
         phoneNumber: "abc"
       })
-    ).rejects.toThrow(BadRequestException);
+    ).toThrow(BadRequestException);
   });
 });
 

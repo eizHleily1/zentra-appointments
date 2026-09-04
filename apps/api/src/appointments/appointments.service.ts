@@ -6,7 +6,6 @@ import {
 } from "../businesses/business-hours.repository";
 import { BUSINESS_REPOSITORY, type Business, type BusinessRepository } from "../businesses/business.repository";
 import { createDefaultBusinessHours } from "../businesses/default-business-hours";
-import type { Client } from "../clients/client.repository";
 import { ClientsService } from "../clients/clients.service";
 import { SERVICE_REPOSITORY, type ServiceRepository } from "../services/service.repository";
 import { STAFF_REPOSITORY, type StaffRepository } from "../staff/staff.repository";
@@ -14,8 +13,10 @@ import {
   APPOINTMENT_REPOSITORY,
   type Appointment,
   type AppointmentRepository,
-  type ConsumerAppointment
+  type ConsumerAppointment,
+  type CreateAppointmentInput
 } from "./appointment.repository";
+import { GUEST_BOOKING_REPOSITORY, type GuestBookingRepository } from "./guest-booking.repository";
 import {
   appointmentBlocksScheduling,
   appointmentsOverlap,
@@ -61,6 +62,7 @@ export class AppointmentsService {
     @Inject(SERVICE_REPOSITORY) private readonly serviceRepository: ServiceRepository,
     @Inject(STAFF_REPOSITORY) private readonly staffRepository: StaffRepository,
     @Inject(APPOINTMENT_REPOSITORY) private readonly appointmentRepository: AppointmentRepository,
+    @Inject(GUEST_BOOKING_REPOSITORY) private readonly guestBookingRepository: GuestBookingRepository,
     private readonly clientsService: ClientsService
   ) {}
 
@@ -77,13 +79,18 @@ export class AppointmentsService {
     }
 
     const client = await this.clientsService.getActiveClientForBooking(command.businessId, command.clientId);
-
-    return this.bookAppointment({
+    const prepared = await this.prepareAppointmentWrite({
       business,
-      client,
       serviceId: command.serviceId,
       staffMemberId: command.staffMemberId,
       startTime: command.startTime
+    });
+
+    return this.insertPreparedAppointment({
+      ...prepared,
+      clientDisplayName: client.displayName,
+      clientId: client.id,
+      clientPhoneNumber: client.phoneNumber
     });
   }
 
@@ -94,19 +101,35 @@ export class AppointmentsService {
       throw new NotFoundException("Business not found");
     }
 
-    const client = await this.clientsService.resolveGuestClient({
+    const guest = this.clientsService.normalizeGuestClient({
       businessId: command.businessId,
       displayName: command.displayName,
       phoneNumber: command.phoneNumber
     });
-
-    return this.bookAppointment({
+    const prepared = await this.prepareAppointmentWrite({
       business,
-      client,
       serviceId: command.serviceId,
       staffMemberId: command.staffMemberId,
       startTime: command.startTime
     });
+
+    try {
+      const booked = await this.guestBookingRepository.createGuestBooking({
+        appointment: {
+          ...prepared,
+          id: randomUUID()
+        },
+        guest
+      });
+
+      return booked.appointment;
+    } catch (error) {
+      if (isPostgresExclusionViolation(error)) {
+        throw new ConflictException("This appointment slot is no longer available");
+      }
+
+      throw error;
+    }
   }
 
   async getAvailableSlots(command: GetAvailableSlotsCommand): Promise<AvailableSlot[]> {
@@ -240,13 +263,12 @@ export class AppointmentsService {
     return updatedAppointment;
   }
 
-  private async bookAppointment(input: {
+  private async prepareAppointmentWrite(input: {
     business: Business;
-    client: Client;
     serviceId: string;
     staffMemberId: string;
     startTime: string;
-  }): Promise<Appointment> {
+  }): Promise<Omit<CreateAppointmentInput, "clientDisplayName" | "clientId" | "clientPhoneNumber" | "id">> {
     const startsAt = parseAppointmentDate(input.startTime, "Appointment start time is required");
 
     if (startsAt.getTime() <= Date.now()) {
@@ -285,21 +307,24 @@ export class AppointmentsService {
       timeZone: input.business.timezone
     });
 
+    return {
+      businessId: input.business.id,
+      endsAt,
+      serviceDurationMinutes: service.durationMinutes,
+      serviceId: service.id,
+      serviceName: service.name,
+      servicePrice: service.price,
+      staffDisplayName: staffMember.displayName,
+      staffMemberId: staffMember.id,
+      startsAt
+    };
+  }
+
+  private async insertPreparedAppointment(input: Omit<CreateAppointmentInput, "id">): Promise<Appointment> {
     try {
       return await this.appointmentRepository.createAppointment({
-        businessId: input.business.id,
-        clientDisplayName: input.client.displayName,
-        clientId: input.client.id,
-        clientPhoneNumber: input.client.phoneNumber,
-        endsAt,
-        id: randomUUID(),
-        serviceDurationMinutes: service.durationMinutes,
-        serviceId: service.id,
-        serviceName: service.name,
-        servicePrice: service.price,
-        staffDisplayName: staffMember.displayName,
-        staffMemberId: staffMember.id,
-        startsAt
+        ...input,
+        id: randomUUID()
       });
     } catch (error) {
       if (isPostgresExclusionViolation(error)) {
