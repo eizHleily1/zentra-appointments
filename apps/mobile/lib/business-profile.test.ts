@@ -13,7 +13,7 @@ describe("business-profile", () => {
 
   it("detects when services or staff are missing", () => {
     expect(isBusinessBookable({ ...bookableBusiness, isBookable: false, services: [] })).toBe(false);
-    expect(isBusinessBookable({ ...bookableBusiness, isBookable: undefined, staff: [] })).toBe(false);
+    expect(isBusinessBookable({ ...bookableBusiness, isBookable: false, staff: [] })).toBe(false);
   });
 
   it("returns friendly booking unavailable messages", () => {

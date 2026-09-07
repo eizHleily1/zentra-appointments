@@ -62,11 +62,13 @@ export class InMemoryGuestBookingRepository implements GuestBookingRepository {
   private async resolveGuestClient(
     guest: GuestClientIdentity
   ): Promise<{ created: boolean; record: Client }> {
-    const existing = await this.clientRepository.findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
-      guest.businessId,
-      guest.normalizedPhone,
-      guest.normalizedDisplayName
-    );
+    // Anonymous booking may only ever reuse a client that is not linked to an account.
+    const existing = await this.clientRepository.findActiveClientMatchingIdentity({
+      businessId: guest.businessId,
+      linkage: "unlinked",
+      normalizedDisplayName: guest.normalizedDisplayName,
+      normalizedPhone: guest.normalizedPhone
+    });
 
     if (existing) {
       return { created: false, record: existing };
@@ -88,11 +90,12 @@ export class InMemoryGuestBookingRepository implements GuestBookingRepository {
         throw error;
       }
 
-      const raced = await this.clientRepository.findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
-        guest.businessId,
-        guest.normalizedPhone,
-        guest.normalizedDisplayName
-      );
+      const raced = await this.clientRepository.findActiveClientMatchingIdentity({
+        businessId: guest.businessId,
+        linkage: "unlinked",
+        normalizedDisplayName: guest.normalizedDisplayName,
+        normalizedPhone: guest.normalizedPhone
+      });
 
       if (!raced) {
         throw new ConflictException("A client with this name and phone number already exists");

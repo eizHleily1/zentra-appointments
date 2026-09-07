@@ -8,7 +8,12 @@ import type { GuestClientIdentity } from "../appointments/guest-booking.reposito
 import { BUSINESS_REPOSITORY, type BusinessRepository } from "../businesses/business.repository";
 import type { ClientDetailsResponse, ClientSummary } from "./client-responses";
 import { normalizeDisplayNameForMatch, normalizeOptionalEmail, normalizePhoneNumber } from "./client-phone";
-import { CLIENT_REPOSITORY, type Client, type ClientRepository } from "./client.repository";
+import {
+  CLIENT_REPOSITORY,
+  type Client,
+  type ClientLinkage,
+  type ClientRepository
+} from "./client.repository";
 
 interface CreateClientCommand {
   businessId: string;
@@ -43,7 +48,8 @@ export class ClientsService {
     const phoneNumber = normalizeOptionalPhoneForStorage(command.phoneNumber);
     const email = normalizeOptionalEmail(command.email);
 
-    await this.assertNoDuplicateActivePhoneAndName(command.businessId, displayName, phoneNumber);
+    // Owner-created clients are always unlinked, so they only conflict with other guests.
+    await this.assertNoDuplicateActivePhoneAndName(command.businessId, displayName, phoneNumber, "unlinked");
 
     try {
       return await this.clientRepository.createClient({
@@ -133,6 +139,7 @@ export class ClientsService {
       command.businessId,
       displayName ?? existingClient.displayName,
       phoneNumber === undefined ? existingClient.phoneNumber : phoneNumber,
+      existingClient.linkedUserId === null ? "unlinked" : "linked",
       command.clientId
     );
 
@@ -209,10 +216,15 @@ export class ClientsService {
     return this.clientRepository.findClientsByLinkedUserId(userId);
   }
 
+  /**
+   * Scoped to one linkage class so an owner can edit a linked client that shares a phone
+   * and name with its unlinked guest twin, which the database deliberately permits.
+   */
   private async assertNoDuplicateActivePhoneAndName(
     businessId: string,
     displayName: string,
     phoneNumber: string | null,
+    linkage: ClientLinkage,
     excludeClientId?: string
   ): Promise<void> {
     if (!phoneNumber) {
@@ -225,12 +237,13 @@ export class ClientsService {
       return;
     }
 
-    const existingClient = await this.clientRepository.findActiveClientByNormalizedPhoneAndNameForBusiness(
+    const existingClient = await this.clientRepository.findActiveClientMatchingIdentity({
       businessId,
-      normalizedPhone,
-      normalizeDisplayNameForMatch(displayName),
-      excludeClientId
-    );
+      excludeClientId,
+      linkage,
+      normalizedDisplayName: normalizeDisplayNameForMatch(displayName),
+      normalizedPhone
+    });
 
     if (existingClient) {
       throw new ConflictException("A client with this name and phone number already exists");

@@ -20,3 +20,6 @@ process.env.GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS ??= "60";
 process.env.GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS ??= "300";
 process.env.GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS ??= "5";
 process.env.GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS ??= "0";
+process.env.PHONE_VERIFICATION_PROVIDER ??= "log";
+// Tests read codes from FakePhoneVerificationSender, never from application logs.
+process.env.PHONE_VERIFICATION_LOG_CODES ??= "false";

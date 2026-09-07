@@ -3,6 +3,7 @@ import type {
   Client,
   ClientRepository,
   CreateClientInput,
+  FindClientIdentityInput,
   FindClientsOptions,
   UpdateClientInput
 } from "../src/clients/client.repository";
@@ -16,13 +17,12 @@ export class InMemoryClientRepository implements ClientRepository {
     if (normalizedPhone) {
       // Mirrors the two partial unique indexes: linked and unlinked identities are
       // enforced separately so a guest record can coexist with a linked account.
-      const duplicate = this.matchActiveClientByNormalizedPhoneAndName(
-        input.businessId,
-        normalizedPhone,
-        normalizeDisplayNameForMatch(input.displayName),
-        undefined,
-        input.linkedUserId === null ? "unlinked" : "linked"
-      );
+      const duplicate = this.matchActiveClientByNormalizedPhoneAndName({
+        businessId: input.businessId,
+        linkage: input.linkedUserId === null ? "unlinked" : "linked",
+        normalizedDisplayName: normalizeDisplayNameForMatch(input.displayName),
+        normalizedPhone
+      });
 
       if (duplicate) {
         const error = new Error("Duplicate client phone and name");
@@ -98,32 +98,8 @@ export class InMemoryClientRepository implements ClientRepository {
     return Array.from(this.clients.values()).filter((client) => client.linkedUserId === linkedUserId);
   }
 
-  async findActiveClientByNormalizedPhoneAndNameForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    normalizedDisplayName: string,
-    excludeClientId?: string
-  ): Promise<Client | null> {
-    return this.matchActiveClientByNormalizedPhoneAndName(
-      businessId,
-      normalizedPhone,
-      normalizedDisplayName,
-      excludeClientId
-    );
-  }
-
-  async findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    normalizedDisplayName: string
-  ): Promise<Client | null> {
-    return this.matchActiveClientByNormalizedPhoneAndName(
-      businessId,
-      normalizedPhone,
-      normalizedDisplayName,
-      undefined,
-      "unlinked"
-    );
+  async findActiveClientMatchingIdentity(input: FindClientIdentityInput): Promise<Client | null> {
+    return this.matchActiveClientByNormalizedPhoneAndName(input);
   }
 
   async updateClient(businessId: string, clientId: string, input: UpdateClientInput): Promise<Client | null> {
@@ -138,12 +114,13 @@ export class InMemoryClientRepository implements ClientRepository {
     const normalizedPhone = normalizePhoneNumber(nextPhoneNumber);
 
     if (normalizedPhone) {
-      const duplicate = await this.findActiveClientByNormalizedPhoneAndNameForBusiness(
+      const duplicate = this.matchActiveClientByNormalizedPhoneAndName({
         businessId,
-        normalizedPhone,
-        normalizeDisplayNameForMatch(nextDisplayName),
-        clientId
-      );
+        excludeClientId: clientId,
+        linkage: client.linkedUserId === null ? "unlinked" : "linked",
+        normalizedDisplayName: normalizeDisplayNameForMatch(nextDisplayName),
+        normalizedPhone
+      });
 
       if (duplicate) {
         const error = new Error("Duplicate client phone and name");
@@ -189,34 +166,24 @@ export class InMemoryClientRepository implements ClientRepository {
     this.clients.delete(clientId);
   }
 
-  private matchActiveClientByNormalizedPhoneAndName(
-    businessId: string,
-    normalizedPhone: string,
-    normalizedDisplayName: string,
-    excludeClientId?: string,
-    linkage?: "linked" | "unlinked"
-  ): Client | null {
+  private matchActiveClientByNormalizedPhoneAndName(input: FindClientIdentityInput): Client | null {
     return (
       Array.from(this.clients.values()).find((client) => {
-        if (client.businessId !== businessId || !client.active) {
+        if (client.businessId !== input.businessId || !client.active) {
           return false;
         }
 
-        if (excludeClientId && client.id === excludeClientId) {
+        if (input.excludeClientId && client.id === input.excludeClientId) {
           return false;
         }
 
-        if (linkage === "linked" && client.linkedUserId === null) {
-          return false;
-        }
-
-        if (linkage === "unlinked" && client.linkedUserId !== null) {
+        if ((client.linkedUserId === null) !== (input.linkage === "unlinked")) {
           return false;
         }
 
         return (
-          normalizePhoneNumber(client.phoneNumber) === normalizedPhone &&
-          normalizeDisplayNameForMatch(client.displayName) === normalizedDisplayName
+          normalizePhoneNumber(client.phoneNumber) === input.normalizedPhone &&
+          normalizeDisplayNameForMatch(client.displayName) === input.normalizedDisplayName
         );
       }) ?? null
     );

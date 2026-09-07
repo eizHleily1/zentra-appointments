@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { DateStripPicker } from "../../components/DateStripPicker";
+import { apiErrorStatus } from "../../lib/api";
 import { SlotGrid } from "../../components/SlotGrid";
 import { buildDateStripOptions, formatDateKey } from "../../lib/dates";
 import { formatServicePriceDisplay } from "../../lib/formatters";
@@ -161,7 +162,9 @@ export function ClientBookAppointmentScreen({
       setVerificationCode("");
       setVerificationStep("sent");
     } catch (error: unknown) {
-      setVerificationStep("idle");
+      // A rejected resend (throttled, offline) says nothing about the challenge the guest
+      // already holds, so keep the code entry visible instead of forcing a restart.
+      setVerificationStep(verificationId ? "sent" : "idle");
       setVerificationError(error instanceof Error ? error.message : "Could not send a verification code");
     }
   }
@@ -223,6 +226,16 @@ export function ClientBookAppointmentScreen({
         timezone: business.timezone
       });
     } catch (error: unknown) {
+      // The API rejects the booking with 400 when the challenge is expired, consumed, or
+      // otherwise unusable. Dropping the verified state is the only way back to a working
+      // flow. A 409 only means the slot went away, so the challenge stays usable.
+      if (apiErrorStatus(error) === 400) {
+        setVerificationStep("idle");
+        setVerificationId("");
+        setVerificationCode("");
+        setVerificationError(null);
+      }
+
       setBookingError(error instanceof Error ? error.message : "Could not confirm the booking");
     } finally {
       setBooking(false);

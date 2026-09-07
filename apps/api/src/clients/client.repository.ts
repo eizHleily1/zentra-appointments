@@ -31,21 +31,26 @@ export interface FindClientsOptions {
   search?: string;
 }
 
+/** Which of the two partial unique indexes on `clients` an identity lookup targets. */
+export type ClientLinkage = "linked" | "unlinked";
+
+export interface FindClientIdentityInput {
+  businessId: string;
+  excludeClientId?: string;
+  linkage: ClientLinkage;
+  normalizedDisplayName: string;
+  normalizedPhone: string;
+}
+
 export interface ClientRepository {
   createClient(input: CreateClientInput): Promise<Client>;
   deactivateClient(businessId: string, clientId: string): Promise<Client | null>;
-  findActiveClientByNormalizedPhoneAndNameForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    normalizedDisplayName: string,
-    excludeClientId?: string
-  ): Promise<Client | null>;
-  /** Anonymous guest booking may only ever reuse clients that are not linked to a user account. */
-  findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    normalizedDisplayName: string
-  ): Promise<Client | null>;
+  /**
+   * Finds an active client with the same identity within one linkage class. Linked and
+   * unlinked records are matched separately because the database allows one of each to
+   * coexist, so a guest booking and a registered account can share a phone and name.
+   */
+  findActiveClientMatchingIdentity(input: FindClientIdentityInput): Promise<Client | null>;
   findClientByIdForBusiness(businessId: string, clientId: string): Promise<Client | null>;
   findClientByLinkedUserIdForBusiness(businessId: string, linkedUserId: string): Promise<Client | null>;
   findClientsByLinkedUserId(linkedUserId: string): Promise<Client[]>;

@@ -4,7 +4,8 @@ import {
   HttpStatus,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
+  ServiceUnavailableException
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { randomInt, randomUUID } from "node:crypto";
@@ -14,6 +15,7 @@ import { normalizePhoneNumber } from "../clients/client-phone";
 import type { AppConfig } from "../config/environment";
 import {
   BOOKING_VERIFICATION_REPOSITORY,
+  BookingVerificationCooldownError,
   type BookingVerificationRepository
 } from "./booking-verification.repository";
 import { PHONE_VERIFICATION_SENDER, type PhoneVerificationSender } from "./phone-verification.sender";
@@ -59,31 +61,57 @@ export class BookingVerificationService {
       throw new BadRequestException("Enter a valid phone number");
     }
 
-    await this.assertResendCooldownElapsed(input.businessId, normalizedPhone);
-
     const attemptsRemaining = this.configService.get("GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS", { infer: true });
     const ttlSeconds = this.configService.get("GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS", { infer: true });
+    const cooldownSeconds = this.configService.get("GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS", {
+      infer: true
+    });
     const code = generateVerificationCode();
-    const verification = await this.verificationRepository.createVerification({
-      attemptsRemaining,
-      businessId: input.businessId,
-      codeHash: await this.passwordService.hash(code),
-      expiresAt: new Date(Date.now() + ttlSeconds * 1000),
-      id: randomUUID(),
-      normalizedPhone
-    });
+    let deliveryFailed = false;
 
-    await this.verificationSender.sendVerificationCode({
-      businessId: input.businessId,
-      code,
-      phoneNumber
-    });
+    try {
+      // The cooldown check, the insert, and the send all live in one transaction, so a
+      // send failure leaves no row behind to claim success or to block the next request.
+      const verification = await this.verificationRepository.issueVerification(
+        {
+          attemptsRemaining,
+          businessId: input.businessId,
+          codeHash: await this.passwordService.hash(code),
+          cooldownSeconds,
+          expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+          id: randomUUID(),
+          normalizedPhone
+        },
+        async () => {
+          try {
+            await this.verificationSender.sendVerificationCode({
+              businessId: input.businessId,
+              code,
+              phoneNumber
+            });
+          } catch (error) {
+            deliveryFailed = true;
+            throw error;
+          }
+        }
+      );
 
-    return {
-      attemptsRemaining: verification.attemptsRemaining,
-      expiresAt: verification.expiresAt,
-      verificationId: verification.id
-    };
+      return {
+        attemptsRemaining: verification.attemptsRemaining,
+        expiresAt: verification.expiresAt,
+        verificationId: verification.id
+      };
+    } catch (error) {
+      if (error instanceof BookingVerificationCooldownError) {
+        throw new HttpException(error.message, HttpStatus.TOO_MANY_REQUESTS);
+      }
+
+      if (deliveryFailed) {
+        throw new ServiceUnavailableException("Could not send a verification code. Try again.");
+      }
+
+      throw error;
+    }
   }
 
   async verifyCode(input: {
@@ -91,10 +119,44 @@ export class BookingVerificationService {
     code: string;
     verificationId: string;
   }): Promise<BookingVerificationResult> {
-    const verification = await this.verificationRepository.findVerificationForBusiness(
+    // Spend the attempt before looking at the code. Reading first would let concurrent
+    // requests share one remaining attempt and guess past the configured maximum.
+    const claimed = await this.verificationRepository.claimVerificationAttempt(
       input.businessId,
       input.verificationId
     );
+
+    if (!claimed) {
+      return this.resolveUnclaimableVerification(input.businessId, input.verificationId);
+    }
+
+    if (!(await this.passwordService.verify(input.code.trim(), claimed.codeHash))) {
+      if (claimed.attemptsRemaining <= 0) {
+        throw new BadRequestException("Too many incorrect codes. Request a new code.");
+      }
+
+      throw new BadRequestException("Verification code is invalid or expired");
+    }
+
+    const verified = await this.verificationRepository.markVerificationVerified(claimed.id);
+
+    if (!verified) {
+      throw new BadRequestException("Verification code is invalid or expired");
+    }
+
+    return toVerificationResult(verified);
+  }
+
+  /**
+   * Explains why an attempt could not be claimed. A challenge that another request just
+   * verified is still a success for this caller, so a correct code is never rejected
+   * because it arrived twice.
+   */
+  private async resolveUnclaimableVerification(
+    businessId: string,
+    verificationId: string
+  ): Promise<BookingVerificationResult> {
+    const verification = await this.verificationRepository.findVerificationForBusiness(businessId, verificationId);
 
     // A missing challenge and a challenge belonging to another business are reported
     // identically so the endpoint never confirms that an identity exists.
@@ -111,61 +173,28 @@ export class BookingVerificationService {
     }
 
     if (verification.verifiedAt) {
-      return {
-        attemptsRemaining: verification.attemptsRemaining,
-        expiresAt: verification.expiresAt,
-        verificationId: verification.id,
-        verified: true
-      };
+      return toVerificationResult(verification);
     }
 
     if (verification.attemptsRemaining <= 0) {
       throw new BadRequestException("Too many incorrect codes. Request a new code.");
     }
 
-    if (!(await this.passwordService.verify(input.code.trim(), verification.codeHash))) {
-      const updated = await this.verificationRepository.recordFailedAttempt(verification.id);
-
-      if (updated && updated.attemptsRemaining <= 0) {
-        throw new BadRequestException("Too many incorrect codes. Request a new code.");
-      }
-
-      throw new BadRequestException("Verification code is invalid or expired");
-    }
-
-    const verified = await this.verificationRepository.markVerificationVerified(verification.id);
-
-    if (!verified) {
-      throw new BadRequestException("Verification code is invalid or expired");
-    }
-
-    return {
-      attemptsRemaining: verified.attemptsRemaining,
-      expiresAt: verified.expiresAt,
-      verificationId: verified.id,
-      verified: true
-    };
+    throw new BadRequestException("Verification code is invalid or expired");
   }
+}
 
-  private async assertResendCooldownElapsed(businessId: string, normalizedPhone: string): Promise<void> {
-    const cooldownSeconds = this.configService.get("GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS", {
-      infer: true
-    });
-
-    if (cooldownSeconds <= 0) {
-      return;
-    }
-
-    const latest = await this.verificationRepository.findLatestVerificationForPhone(businessId, normalizedPhone);
-
-    if (!latest) {
-      return;
-    }
-
-    if (Date.now() - latest.createdAt.getTime() < cooldownSeconds * 1000) {
-      throw new HttpException("Wait before requesting another verification code", HttpStatus.TOO_MANY_REQUESTS);
-    }
-  }
+function toVerificationResult(verification: {
+  attemptsRemaining: number;
+  expiresAt: Date;
+  id: string;
+}): BookingVerificationResult {
+  return {
+    attemptsRemaining: verification.attemptsRemaining,
+    expiresAt: verification.expiresAt,
+    verificationId: verification.id,
+    verified: true
+  };
 }
 
 function generateVerificationCode(): string {

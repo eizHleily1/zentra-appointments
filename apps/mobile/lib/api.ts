@@ -17,6 +17,21 @@ export function getApiBaseUrl(): string {
 
 const API_URL = getApiBaseUrl();
 
+/** Carries the HTTP status so callers can tell a retryable failure from a rejected input. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export function apiErrorStatus(error: unknown): number | null {
+  return error instanceof ApiError ? error.status : null;
+}
+
 export interface ApiAuthSession {
   getTokens: () => AuthTokens | null;
   onSessionInvalid: () => void;
@@ -31,7 +46,7 @@ export async function apiFetch<T>(
   const { data, response } = await executeRequest(path, options, accessToken ?? null);
 
   if (!response.ok) {
-    throw new Error(errorMessage(data));
+    throw new ApiError(errorMessage(data), response.status);
   }
 
   return data as T;
@@ -91,7 +106,7 @@ export function createApiClient(session: ApiAuthSession) {
     }
 
     if (!response.ok) {
-      throw new Error(errorMessage(data));
+      throw new ApiError(errorMessage(data), response.status);
     }
 
     return data as T;

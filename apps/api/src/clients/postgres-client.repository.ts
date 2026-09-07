@@ -4,6 +4,7 @@ import type {
   Client,
   ClientRepository,
   CreateClientInput,
+  FindClientIdentityInput,
   FindClientsOptions,
   UpdateClientInput
 } from "./client.repository";
@@ -117,46 +118,26 @@ export class PostgresClientRepository implements ClientRepository {
     return result.rows.map(mapClient);
   }
 
-  async findActiveClientByNormalizedPhoneAndNameForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    normalizedDisplayName: string,
-    excludeClientId?: string
-  ): Promise<Client | null> {
+  async findActiveClientMatchingIdentity(input: FindClientIdentityInput): Promise<Client | null> {
     const result = await this.databaseService.query<ClientRow>(
       `
         SELECT *
         FROM clients
         WHERE business_id = $1
           AND active = true
+          AND ($4::boolean = (linked_user_id IS NULL))
           AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
           AND lower(btrim(display_name)) = $3
-          AND ($4::uuid IS NULL OR id <> $4)
+          AND ($5::uuid IS NULL OR id <> $5)
         LIMIT 1
       `,
-      [businessId, normalizedPhone, normalizedDisplayName, excludeClientId ?? null]
-    );
-
-    return result.rows[0] ? mapClient(result.rows[0]) : null;
-  }
-
-  async findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    normalizedDisplayName: string
-  ): Promise<Client | null> {
-    const result = await this.databaseService.query<ClientRow>(
-      `
-        SELECT *
-        FROM clients
-        WHERE business_id = $1
-          AND active = true
-          AND linked_user_id IS NULL
-          AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
-          AND lower(btrim(display_name)) = $3
-        LIMIT 1
-      `,
-      [businessId, normalizedPhone, normalizedDisplayName]
+      [
+        input.businessId,
+        input.normalizedPhone,
+        input.normalizedDisplayName,
+        input.linkage === "unlinked",
+        input.excludeClientId ?? null
+      ]
     );
 
     return result.rows[0] ? mapClient(result.rows[0]) : null;

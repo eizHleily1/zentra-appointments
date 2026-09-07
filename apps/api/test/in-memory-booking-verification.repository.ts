@@ -1,14 +1,57 @@
-import type {
-  BookingPhoneVerification,
-  BookingPhoneVerificationSecret,
-  BookingVerificationRepository,
-  CreateBookingPhoneVerificationInput
+import {
+  BookingVerificationCooldownError,
+  type BookingPhoneVerification,
+  type BookingPhoneVerificationSecret,
+  type BookingVerificationRepository,
+  type CreateBookingPhoneVerificationInput
 } from "../src/booking-verification/booking-verification.repository";
 
 export class InMemoryBookingVerificationRepository implements BookingVerificationRepository {
   private readonly verifications = new Map<string, BookingPhoneVerificationSecret>();
 
-  async createVerification(input: CreateBookingPhoneVerificationInput): Promise<BookingPhoneVerification> {
+  /** Mirrors the conditional UPDATE that spends one attempt in Postgres. */
+  async claimVerificationAttempt(
+    businessId: string,
+    verificationId: string
+  ): Promise<BookingPhoneVerificationSecret | null> {
+    const verification = this.verifications.get(verificationId);
+
+    if (
+      !verification ||
+      verification.businessId !== businessId ||
+      verification.consumedAt !== null ||
+      verification.verifiedAt !== null ||
+      verification.expiresAt.getTime() <= Date.now() ||
+      verification.attemptsRemaining <= 0
+    ) {
+      return null;
+    }
+
+    verification.attemptsRemaining -= 1;
+    verification.updatedAt = new Date();
+    return { ...verification };
+  }
+
+  async issueVerification(
+    input: CreateBookingPhoneVerificationInput,
+    deliver: (verification: BookingPhoneVerification) => Promise<void>
+  ): Promise<BookingPhoneVerification> {
+    // The cooldown read and the insert happen before the first await, which gives the
+    // same "only one issuance wins" guarantee the advisory lock gives in Postgres.
+    if (input.cooldownSeconds > 0) {
+      const cutoff = Date.now() - input.cooldownSeconds * 1000;
+      const recent = Array.from(this.verifications.values()).some(
+        (verification) =>
+          verification.businessId === input.businessId &&
+          verification.normalizedPhone === input.normalizedPhone &&
+          verification.createdAt.getTime() > cutoff
+      );
+
+      if (recent) {
+        throw new BookingVerificationCooldownError();
+      }
+    }
+
     const now = new Date();
     const verification: BookingPhoneVerificationSecret = {
       attemptsRemaining: input.attemptsRemaining,
@@ -24,21 +67,15 @@ export class InMemoryBookingVerificationRepository implements BookingVerificatio
     };
 
     this.verifications.set(verification.id, verification);
+
+    try {
+      await deliver(stripCodeHash(verification));
+    } catch (error) {
+      this.verifications.delete(verification.id);
+      throw error;
+    }
+
     return stripCodeHash(verification);
-  }
-
-  async findLatestVerificationForPhone(
-    businessId: string,
-    normalizedPhone: string
-  ): Promise<BookingPhoneVerification | null> {
-    const matches = Array.from(this.verifications.values())
-      .filter(
-        (verification) =>
-          verification.businessId === businessId && verification.normalizedPhone === normalizedPhone
-      )
-      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
-
-    return matches[0] ? stripCodeHash(matches[0]) : null;
   }
 
   async findVerificationForBusiness(
@@ -57,7 +94,7 @@ export class InMemoryBookingVerificationRepository implements BookingVerificatio
   async markVerificationVerified(verificationId: string): Promise<BookingPhoneVerification | null> {
     const verification = this.verifications.get(verificationId);
 
-    if (!verification) {
+    if (!verification || verification.consumedAt !== null || verification.expiresAt.getTime() <= Date.now()) {
       return null;
     }
 
@@ -66,16 +103,26 @@ export class InMemoryBookingVerificationRepository implements BookingVerificatio
     return stripCodeHash(verification);
   }
 
-  async recordFailedAttempt(verificationId: string): Promise<BookingPhoneVerification | null> {
-    const verification = this.verifications.get(verificationId);
+  /** Seeds a challenge directly, bypassing cooldown and delivery. */
+  seedVerification(
+    input: Omit<CreateBookingPhoneVerificationInput, "cooldownSeconds">
+  ): BookingPhoneVerificationSecret {
+    const now = new Date();
+    const verification: BookingPhoneVerificationSecret = {
+      attemptsRemaining: input.attemptsRemaining,
+      businessId: input.businessId,
+      codeHash: input.codeHash,
+      consumedAt: null,
+      createdAt: now,
+      expiresAt: input.expiresAt,
+      id: input.id,
+      normalizedPhone: input.normalizedPhone,
+      updatedAt: now,
+      verifiedAt: null
+    };
 
-    if (!verification) {
-      return null;
-    }
-
-    verification.attemptsRemaining = Math.max(verification.attemptsRemaining - 1, 0);
-    verification.updatedAt = new Date();
-    return stripCodeHash(verification);
+    this.verifications.set(verification.id, verification);
+    return { ...verification };
   }
 
   /** Mirrors the conditional UPDATE the Postgres booking transaction runs. */

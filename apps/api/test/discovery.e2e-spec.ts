@@ -445,6 +445,28 @@ describe("DiscoveryController", () => {
     expect(stored.verifiedAt).toBeNull();
   });
 
+  it("reports a send failure instead of handing out a challenge no code can complete", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    verificationSender.failSends();
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
+      .send({ phoneNumber: "555-123-4567" })
+      .expect(503);
+
+    expect(verificationRepository.getVerifications()).toHaveLength(0);
+
+    // Nothing was written, so the guest can immediately try again once sending works.
+    verificationSender.succeedSends();
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
+      .send({ phoneNumber: "555-123-4567" })
+      .expect(201);
+  });
+
   it("rejects an incorrect verification code and enforces the attempt limit", async () => {
     const owner = await registerAndGetIdentity(app, "owner@example.com");
     const staffUser = await registerAndGetIdentity(app, "staff@example.com");

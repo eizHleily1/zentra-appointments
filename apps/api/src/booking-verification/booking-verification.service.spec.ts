@@ -1,4 +1,9 @@
-import { BadRequestException, HttpException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  HttpException,
+  NotFoundException,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "node:crypto";
 import { FakePhoneVerificationSender } from "../../test/fake-phone-verification.sender";
@@ -214,6 +219,87 @@ describe("BookingVerificationService", () => {
     await expect(
       service.requestVerification({ businessId: BUSINESS_ID, phoneNumber: "555-000-1111" })
     ).resolves.toBeDefined();
+  });
+
+  describe("when the sender fails", () => {
+    it("reports the failure instead of claiming a code was delivered", async () => {
+      const service = createService();
+      sender.failSends();
+
+      await expect(
+        service.requestVerification({ businessId: BUSINESS_ID, phoneNumber: "555-123-4567" })
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+
+    it("leaves no challenge behind, so the guest is not throttled for a code they never got", async () => {
+      const service = createService({ GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS: 60 });
+      sender.failSends();
+
+      await expect(
+        service.requestVerification({ businessId: BUSINESS_ID, phoneNumber: "555-123-4567" })
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(repository.getVerifications()).toHaveLength(0);
+
+      sender.succeedSends();
+      await expect(
+        service.requestVerification({ businessId: BUSINESS_ID, phoneNumber: "555-123-4567" })
+      ).resolves.toBeDefined();
+    });
+  });
+
+  describe("concurrency", () => {
+    it("issues only one challenge and sends only one message for concurrent requests", async () => {
+      const service = createService({ GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS: 60 });
+
+      const results = await Promise.allSettled([
+        service.requestVerification({ businessId: BUSINESS_ID, phoneNumber: "555-123-4567" }),
+        service.requestVerification({ businessId: BUSINESS_ID, phoneNumber: "(555) 123-4567" })
+      ]);
+
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(repository.getVerifications()).toHaveLength(1);
+      expect(sender.sent).toHaveLength(1);
+    });
+
+    it("does not let concurrent guesses share the last remaining attempt", async () => {
+      const service = createService({ GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS: 1 });
+      const challenge = await service.requestVerification({
+        businessId: BUSINESS_ID,
+        phoneNumber: "555-123-4567"
+      });
+      const wrongCode = nextCode(sender.lastCodeFor("555-123-4567"));
+
+      await Promise.allSettled([
+        service.verifyCode({ businessId: BUSINESS_ID, code: wrongCode, verificationId: challenge.verificationId }),
+        service.verifyCode({ businessId: BUSINESS_ID, code: wrongCode, verificationId: challenge.verificationId })
+      ]);
+
+      // One guess was spent, not two, and the challenge is now locked for everyone.
+      expect(repository.getVerifications()[0].attemptsRemaining).toBe(0);
+      await expect(
+        service.verifyCode({
+          businessId: BUSINESS_ID,
+          code: sender.lastCodeFor("555-123-4567"),
+          verificationId: challenge.verificationId
+        })
+      ).rejects.toThrow("Too many incorrect codes. Request a new code.");
+    });
+
+    it("accepts a correct code that arrives twice without failing the second caller", async () => {
+      const service = createService();
+      const challenge = await service.requestVerification({
+        businessId: BUSINESS_ID,
+        phoneNumber: "555-123-4567"
+      });
+      const code = sender.lastCodeFor("555-123-4567");
+
+      const results = await Promise.all([
+        service.verifyCode({ businessId: BUSINESS_ID, code, verificationId: challenge.verificationId }),
+        service.verifyCode({ businessId: BUSINESS_ID, code, verificationId: challenge.verificationId })
+      ]);
+
+      expect(results.map((result) => result.verified)).toEqual([true, true]);
+    });
   });
 });
 

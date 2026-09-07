@@ -37,7 +37,7 @@ describe("AppointmentsService", () => {
 
   /** Issues an already-verified challenge so guest booking tests can focus on booking rules. */
   async function verifiedChallenge(businessId: string, phoneNumber: string): Promise<string> {
-    const verification = await verificationRepository.createVerification({
+    const verification = verificationRepository.seedVerification({
       attemptsRemaining: 5,
       businessId,
       codeHash: "hashed-code",
@@ -936,7 +936,7 @@ describe("AppointmentsService", () => {
       staffRepository
     });
     businessRepository.setBusinessStatus(business.id, "ACTIVE");
-    const unverified = await verificationRepository.createVerification({
+    const unverified = verificationRepository.seedVerification({
       attemptsRemaining: 5,
       businessId: business.id,
       codeHash: "hashed-code",

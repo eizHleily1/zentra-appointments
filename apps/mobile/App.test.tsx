@@ -422,6 +422,78 @@ describe("App consumer Home tab from Explore stack", () => {
     });
   });
 
+  it("keeps the existing challenge and the code input when a resend is throttled", async () => {
+    let verificationRequests = 0;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/booking-verifications")) {
+        verificationRequests += 1;
+
+        if (verificationRequests > 1) {
+          return Promise.resolve(
+            jsonResponse({ message: "Wait before requesting another verification code" }, 429)
+          );
+        }
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByText("Resend code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Wait before requesting another verification code")).toBeTruthy();
+    });
+
+    // The first code is still valid, so the guest can finish with it.
+    expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+
+    fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), "123456");
+    fireEvent.press(screen.getByText("Verify code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Phone verified")).toBeTruthy();
+    });
+  });
+
+  it("lets the guest request a new code when booking rejects an unusable verification", async () => {
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        return Promise.resolve(jsonResponse({ message: "Verify your phone number before booking" }, 400));
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("Verify your phone number before booking")).toBeTruthy();
+    });
+
+    // The stale verified state is dropped so the guest is not stuck on a dead Confirm.
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.queryByText("Confirm booking")).toBeNull();
+    expect(screen.getByText("Send code")).toBeTruthy();
+
+    await verifyGuestPhone();
+    expect(screen.getByText("Confirm booking")).toBeTruthy();
+  });
+
   it("clears the verification when the phone number is edited", async () => {
     render(<App />);
     await openDowntownBarberProfile();

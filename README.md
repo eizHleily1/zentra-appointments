@@ -639,6 +639,15 @@ pnpm db:init:booking-verification
 
 This adds the `booking_phone_verifications` challenge table for public guest booking and splits the client identity index into separate unique indexes for linked and unlinked clients, so an anonymous booking can never reuse a client that belongs to a registered user.
 
+### Booking phone verification providers
+
+No SMS vendor is integrated yet. `PHONE_VERIFICATION_PROVIDER` selects the sender, and `log` is the only implementation:
+
+- `log` writes to the application log and delivers nothing. Startup **fails** when `NODE_ENV=production` uses it, so production can never issue a challenge that no guest can complete.
+- Set `PHONE_VERIFICATION_LOG_CODES=true` to print the plaintext code locally. This is an explicit opt-in rather than a "not production" default, so staging, preview, and CI hosts do not log usable codes. Startup also fails if it is enabled in production.
+
+Tests read codes from `FakePhoneVerificationSender` and never depend on application logs.
+
 ### Fresh local database setup
 
 Start PostgreSQL, then apply migrations in order:

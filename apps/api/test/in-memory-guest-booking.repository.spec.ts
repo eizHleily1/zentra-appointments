@@ -31,7 +31,7 @@ async function createVerifiedChallenge(
   verificationRepository: InMemoryBookingVerificationRepository,
   overrides: { normalizedPhone?: string } = {}
 ): Promise<string> {
-  const verification = await verificationRepository.createVerification({
+  const verification = verificationRepository.seedVerification({
     attemptsRemaining: 5,
     businessId: GUEST.businessId,
     codeHash: "hashed-code",
@@ -126,7 +126,7 @@ describe("InMemoryGuestBookingRepository", () => {
   });
 
   it("rejects a booking whose verification was never verified", async () => {
-    const verification = await verificationRepository.createVerification({
+    const verification = verificationRepository.seedVerification({
       attemptsRemaining: 5,
       businessId: GUEST.businessId,
       codeHash: "hashed-code",
