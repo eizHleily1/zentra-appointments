@@ -7,7 +7,7 @@ import {
 import type { GuestClientIdentity } from "../appointments/guest-booking.repository";
 import { BUSINESS_REPOSITORY, type BusinessRepository } from "../businesses/business.repository";
 import type { ClientDetailsResponse, ClientSummary } from "./client-responses";
-import { normalizeDisplayNameForMatch, normalizeOptionalEmail, normalizePhoneNumber } from "./client-phone";
+import { normalizeOptionalEmail, normalizePhoneNumber } from "./client-phone";
 import {
   CLIENT_REPOSITORY,
   type Client,
@@ -206,7 +206,6 @@ export class ClientsService {
     return {
       businessId: input.businessId,
       displayName,
-      normalizedDisplayName: normalizeDisplayNameForMatch(displayName),
       normalizedPhone,
       phoneNumber
     };
@@ -239,9 +238,9 @@ export class ClientsService {
 
     const existingClient = await this.clientRepository.findActiveClientMatchingIdentity({
       businessId,
+      displayName,
       excludeClientId,
       linkage,
-      normalizedDisplayName: normalizeDisplayNameForMatch(displayName),
       normalizedPhone
     });
 

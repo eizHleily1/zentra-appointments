@@ -639,6 +639,20 @@ pnpm db:init:booking-verification
 
 This adds the `booking_phone_verifications` challenge table for public guest booking and splits the client identity index into separate unique indexes for linked and unlinked clients, so an anonymous booking can never reuse a client that belongs to a registered user.
 
+Iteration 16 client name identity is initialized explicitly with:
+
+```text
+apps/api/db/iteration-16-client-name-identity.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:client-name-identity
+```
+
+This defines `normalize_client_display_name` and rebuilds the client identity indexes to use it, so matching and uniqueness always fold names in PostgreSQL rather than in JavaScript. Display names are still stored as entered.
+
 ### Booking phone verification providers
 
 No SMS vendor is integrated yet. `PHONE_VERIFICATION_PROVIDER` selects the sender, and `log` is the only implementation:
@@ -669,6 +683,7 @@ pnpm db:init:location
 pnpm db:init:booking-interval
 pnpm db:init:client-identity
 pnpm db:init:booking-verification
+pnpm db:init:client-name-identity
 ```
 
 Existing databases only need the migrations they have not applied yet. SQL files use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` where possible so re-running a migration is usually safe.

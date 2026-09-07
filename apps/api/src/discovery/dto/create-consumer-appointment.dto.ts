@@ -20,6 +20,9 @@ export class CreateConsumerAppointmentDto {
   @MaxLength(40)
   phoneNumber!: string;
 
-  @IsUUID(undefined, { message: "Verify your phone number before booking" })
+  // Deliberately worded differently from BookingVerificationRequiredException. That
+  // exception is the only source of code "booking_verification_invalid", and a malformed
+  // payload is a client bug rather than an unusable challenge.
+  @IsUUID(undefined, { message: "A verified phone number is required to book" })
   verificationId!: string;
 }

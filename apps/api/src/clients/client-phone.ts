@@ -1,7 +1,3 @@
-export function normalizeDisplayNameForMatch(displayName: string): string {
-  return displayName.trim().toLowerCase();
-}
-
 export function normalizePhoneNumber(phoneNumber: string | null | undefined): string | null {
   if (phoneNumber === null || phoneNumber === undefined) {
     return null;

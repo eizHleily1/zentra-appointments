@@ -127,14 +127,14 @@ export class PostgresClientRepository implements ClientRepository {
           AND active = true
           AND ($4::boolean = (linked_user_id IS NULL))
           AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
-          AND lower(btrim(display_name)) = $3
+          AND normalize_client_display_name(display_name) = normalize_client_display_name($3)
           AND ($5::uuid IS NULL OR id <> $5)
         LIMIT 1
       `,
       [
         input.businessId,
         input.normalizedPhone,
-        input.normalizedDisplayName,
+        input.displayName,
         input.linkage === "unlinked",
         input.excludeClientId ?? null
       ]

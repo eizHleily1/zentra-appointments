@@ -539,6 +539,31 @@ describe("App consumer Home tab from Explore stack", () => {
     });
   });
 
+  it("does not reset OTP state when booking validation lacks the verification error code", async () => {
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        return Promise.resolve(
+          jsonResponse({ message: "A verified phone number is required to book" }, 400)
+        );
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("A verified phone number is required to book")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+    expect(screen.getByText("Confirm booking")).toBeTruthy();
+  });
+
   it("ignores a code response that arrives after the guest changed the phone number", async () => {
     let releaseVerificationRequest: (() => void) | null = null;
     globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -612,6 +637,54 @@ describe("App consumer Home tab from Explore stack", () => {
     // Verifying the old number must not mark the new number as verified.
     expect(screen.queryByText("Phone verified")).toBeNull();
     expect(screen.getByText("Send code")).toBeTruthy();
+  });
+
+  it("ignores a stale booking failure after the guest changed the phone number", async () => {
+    let releaseBooking: (() => void) | null = null;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        return new Promise((resolve) => {
+          releaseBooking = () =>
+            resolve(
+              jsonResponse(
+                {
+                  code: "booking_verification_invalid",
+                  message: "Verify your phone number before booking"
+                },
+                400
+              )
+            );
+        });
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("Confirming...")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+
+    expect(screen.getByText("Send code")).toBeTruthy();
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.queryByText("Verify your phone number before booking")).toBeNull();
+
+    await act(async () => {
+      releaseBooking?.();
+    });
+
+    // The abandoned booking's invalid-verification failure belongs to the old number.
+    expect(screen.queryByText("Verify your phone number before booking")).toBeNull();
+    expect(screen.getByText("Send code")).toBeTruthy();
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.getByDisplayValue("555-000-1111")).toBeTruthy();
   });
 
   it("clears the verification when the phone number is edited", async () => {

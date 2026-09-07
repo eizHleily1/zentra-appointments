@@ -152,6 +152,7 @@ export function ClientBookAppointmentScreen({
     clearVerification();
     setVerificationError(null);
     setBookingError(null);
+    setBooking(false);
   }
 
   async function sendVerificationCode() {
@@ -234,7 +235,8 @@ export function ClientBookAppointmentScreen({
     }
 
     // Booking does not issue a challenge, so it only reads the ticket rather than taking
-    // one: a late failure must not clear a challenge the guest has since replaced.
+    // one: a late failure must not clear a challenge the guest has since replaced, and
+    // must not paint its error onto the new number's flow.
     const bookedTicket = verificationRequestRef.current;
     const isCurrent = () => verificationRequestRef.current === bookedTicket;
 
@@ -267,17 +269,26 @@ export function ClientBookAppointmentScreen({
         timezone: business.timezone
       });
     } catch (error: unknown) {
+      // The guest can edit the phone number while a booking is in flight, which starts a
+      // new verification. A failure from the abandoned attempt must not touch that state,
+      // including the error banner.
+      if (!isCurrent()) {
+        return;
+      }
+
       // Only drop the verified state when the API says the challenge itself is unusable.
       // Booking also returns 400 for a past start time, changed business hours, or an
       // inactive service, and those are all fixable while keeping the same challenge.
-      if (isInvalidVerificationError(error) && isCurrent()) {
+      if (isInvalidVerificationError(error)) {
         clearVerification();
         setVerificationError(null);
       }
 
       setBookingError(error instanceof Error ? error.message : "Could not confirm the booking");
     } finally {
-      setBooking(false);
+      if (isCurrent()) {
+        setBooking(false);
+      }
     }
   }
 

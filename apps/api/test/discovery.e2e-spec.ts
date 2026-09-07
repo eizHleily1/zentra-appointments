@@ -718,6 +718,43 @@ describe("DiscoveryController", () => {
     expect(pastBooking.body.code).toBeUndefined();
   });
 
+  it("does not tag a missing or malformed verificationId as an unusable challenge", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+
+    const missing = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send({
+        displayName: "Maria Lopez",
+        phoneNumber: "555-123-4567",
+        serviceId: setup.businessService.id,
+        staffMemberId: setup.staffMember.id,
+        startTime: slots[0].startTime
+      })
+      .expect(400);
+
+    expect(missing.body.code).toBeUndefined();
+    expect(JSON.stringify(missing.body)).not.toContain("booking_verification_invalid");
+
+    const malformed = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId: "not-a-uuid"
+        })
+      )
+      .expect(400);
+
+    expect(malformed.body.code).toBeUndefined();
+    expect(JSON.stringify(malformed.body.message)).toContain("A verified phone number is required to book");
+    expect(JSON.stringify(malformed.body)).not.toContain("booking_verification_invalid");
+  });
+
   it("no longer accepts the verification id in the URL path", async () => {
     const owner = await registerAndGetIdentity(app, "owner@example.com");
     const staffUser = await registerAndGetIdentity(app, "staff@example.com");

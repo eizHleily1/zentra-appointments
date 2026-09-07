@@ -5,8 +5,8 @@ export const GUEST_BOOKING_REPOSITORY = Symbol("GUEST_BOOKING_REPOSITORY");
 
 export interface GuestClientIdentity {
   businessId: string;
+  /** Raw name as entered; `normalize_client_display_name` owns matching. */
   displayName: string;
-  normalizedDisplayName: string;
   normalizedPhone: string;
   phoneNumber: string;
 }

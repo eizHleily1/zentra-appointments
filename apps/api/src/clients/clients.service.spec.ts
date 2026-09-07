@@ -320,7 +320,6 @@ describe("ClientsService", () => {
     expect(identity).toEqual({
       businessId: "business-1",
       displayName: "Maria Lopez",
-      normalizedDisplayName: "maria lopez",
       normalizedPhone: "5551234567",
       phoneNumber: "555-123-4567"
     });

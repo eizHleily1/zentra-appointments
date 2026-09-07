@@ -65,8 +65,8 @@ export class InMemoryGuestBookingRepository implements GuestBookingRepository {
     // Anonymous booking may only ever reuse a client that is not linked to an account.
     const existing = await this.clientRepository.findActiveClientMatchingIdentity({
       businessId: guest.businessId,
+      displayName: guest.displayName,
       linkage: "unlinked",
-      normalizedDisplayName: guest.normalizedDisplayName,
       normalizedPhone: guest.normalizedPhone
     });
 
@@ -92,8 +92,8 @@ export class InMemoryGuestBookingRepository implements GuestBookingRepository {
 
       const raced = await this.clientRepository.findActiveClientMatchingIdentity({
         businessId: guest.businessId,
+        displayName: guest.displayName,
         linkage: "unlinked",
-        normalizedDisplayName: guest.normalizedDisplayName,
         normalizedPhone: guest.normalizedPhone
       });
 

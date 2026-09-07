@@ -11,10 +11,14 @@ import { PostgresClientRepository } from "./postgres-client.repository";
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgresql://appointment_saas:appointment_saas@localhost:5433/appointment_saas_dev";
 
-const schemaFiles = ["iteration-14-client-phone-name-identity.sql", "iteration-15-booking-phone-verification.sql"];
+const schemaFiles = [
+  "iteration-14-client-phone-name-identity.sql",
+  "iteration-15-booking-phone-verification.sql",
+  "iteration-16-client-name-identity.sql"
+];
 
 const NORMALIZED_PHONE = "5551234567";
-const NORMALIZED_NAME = "maria lopez";
+const NAME = "Maria Lopez";
 
 /**
  * Exercises the real SQL behind the linked/unlinked split. The in-memory double reimple-
@@ -86,7 +90,7 @@ describe("PostgresClientRepository identity lookup", () => {
     const match = await repository.findActiveClientMatchingIdentity({
       businessId,
       linkage: "unlinked",
-      normalizedDisplayName: NORMALIZED_NAME,
+      displayName: NAME,
       normalizedPhone: NORMALIZED_PHONE
     });
 
@@ -102,7 +106,7 @@ describe("PostgresClientRepository identity lookup", () => {
     const match = await repository.findActiveClientMatchingIdentity({
       businessId,
       linkage: "linked",
-      normalizedDisplayName: NORMALIZED_NAME,
+      displayName: NAME,
       normalizedPhone: NORMALIZED_PHONE
     });
 
@@ -118,7 +122,7 @@ describe("PostgresClientRepository identity lookup", () => {
       repository.findActiveClientMatchingIdentity({
         businessId,
         linkage: "linked",
-        normalizedDisplayName: NORMALIZED_NAME,
+        displayName: NAME,
         normalizedPhone: NORMALIZED_PHONE
       })
     ).resolves.toBeNull();
@@ -134,7 +138,7 @@ describe("PostgresClientRepository identity lookup", () => {
         businessId,
         excludeClientId: unlinkedId,
         linkage: "unlinked",
-        normalizedDisplayName: NORMALIZED_NAME,
+        displayName: NAME,
         normalizedPhone: NORMALIZED_PHONE
       })
     ).resolves.toBeNull();
@@ -152,7 +156,7 @@ describe("PostgresClientRepository identity lookup", () => {
       repository.findActiveClientMatchingIdentity({
         businessId,
         linkage: "unlinked",
-        normalizedDisplayName: NORMALIZED_NAME,
+        displayName: NAME,
         normalizedPhone: NORMALIZED_PHONE
       })
     ).resolves.toBeNull();
@@ -173,22 +177,41 @@ describe("PostgresClientRepository identity lookup", () => {
     const match = await repository.findActiveClientMatchingIdentity({
       businessId,
       linkage: "unlinked",
-      normalizedDisplayName: NORMALIZED_NAME,
+      displayName: NAME,
       normalizedPhone: `1${NORMALIZED_PHONE}`
     });
 
     expect(match?.id).toBe(clientId);
   });
 
-  async function seedClient(businessId: string, linkedUserId: string | null): Promise<string> {
+  it("matches Unicode names with PostgreSQL folding rather than JavaScript toLowerCase", async () => {
+    const { businessId } = await seedBusiness();
+    const clientId = await seedClient(businessId, null, "İpek");
+
+    const match = await repository.findActiveClientMatchingIdentity({
+      businessId,
+      displayName: "  İpek  ",
+      linkage: "unlinked",
+      normalizedPhone: NORMALIZED_PHONE
+    });
+
+    expect(match?.id).toBe(clientId);
+    expect(match?.displayName).toBe("İpek");
+  });
+
+  async function seedClient(
+    businessId: string,
+    linkedUserId: string | null,
+    displayName = "Maria Lopez"
+  ): Promise<string> {
     const clientId = randomUUID();
 
     await databaseService.query(
       `
         INSERT INTO clients (id, business_id, display_name, phone_number, email, linked_user_id, active)
-        VALUES ($1, $2, 'Maria Lopez', '555-123-4567', NULL, $3, true)
+        VALUES ($1, $2, $4, '555-123-4567', NULL, $3, true)
       `,
-      [clientId, businessId, linkedUserId]
+      [clientId, businessId, linkedUserId, displayName]
     );
 
     return clientId;

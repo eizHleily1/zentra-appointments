@@ -11,7 +11,11 @@ import { PostgresGuestBookingRepository } from "./postgres-guest-booking.reposit
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgresql://appointment_saas:appointment_saas@localhost:5433/appointment_saas_dev";
 
-const schemaFiles = ["iteration-14-client-phone-name-identity.sql", "iteration-15-booking-phone-verification.sql"];
+const schemaFiles = [
+  "iteration-14-client-phone-name-identity.sql",
+  "iteration-15-booking-phone-verification.sql",
+  "iteration-16-client-name-identity.sql"
+];
 
 describe("PostgresGuestBookingRepository", () => {
   it("runs guest client and appointment writes in one transaction that rolls back on failure", async () => {
@@ -230,7 +234,6 @@ describe("PostgresGuestBookingRepository", () => {
       const guest = {
         businessId: setup.businessId,
         displayName: "Maria Lopez",
-        normalizedDisplayName: "maria lopez",
         normalizedPhone: "5551234567",
         phoneNumber: "555-123-4567"
       };
@@ -263,9 +266,9 @@ describe("PostgresGuestBookingRepository", () => {
           FROM clients
           WHERE business_id = $1
             AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
-            AND lower(btrim(display_name)) = $3
+            AND normalize_client_display_name(display_name) = normalize_client_display_name($3)
         `,
-        [setup.businessId, guest.normalizedPhone, guest.normalizedDisplayName]
+        [setup.businessId, guest.normalizedPhone, guest.displayName]
       );
       const appointments = await databaseService.query<{ id: string; client_id: string }>(
         "SELECT id, client_id FROM appointments WHERE business_id = $1 ORDER BY starts_at ASC",
@@ -370,6 +373,48 @@ describe("PostgresGuestBookingRepository", () => {
       expect(booked.client.linkedUserId).toBeNull();
     });
 
+    it("reuses one guest client for Unicode names that JavaScript and PostgreSQL case-fold differently", async () => {
+      const setup = await seedBookableBusiness();
+      const displayName = "İpek";
+      const ids = {
+        businessId: setup.businessId,
+        serviceId: setup.serviceId,
+        staffMemberId: setup.staffMemberId
+      };
+
+      const first = await repository.createGuestBooking(
+        guestBookingInput(randomUUID(), "10:00", "10:30", {
+          ...ids,
+          displayName,
+          verificationId: await seedVerifiedChallenge(setup.businessId)
+        })
+      );
+      const second = await repository.createGuestBooking(
+        guestBookingInput(randomUUID(), "10:30", "11:00", {
+          ...ids,
+          displayName: `  ${displayName}  `,
+          verificationId: await seedVerifiedChallenge(setup.businessId)
+        })
+      );
+
+      expect(first.client.id).toBe(second.client.id);
+      expect(first.client.displayName).toBe(displayName);
+
+      const clients = await databaseService.query<{ id: string; display_name: string }>(
+        `
+          SELECT id, display_name
+          FROM clients
+          WHERE business_id = $1
+            AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
+            AND normalize_client_display_name(display_name) = normalize_client_display_name($3)
+        `,
+        [setup.businessId, "5551234567", displayName]
+      );
+
+      expect(clients.rows).toHaveLength(1);
+      expect(clients.rows[0].display_name).toBe(displayName);
+    });
+
     async function seedVerifiedChallenge(businessId: string, normalizedPhone = "5551234567"): Promise<string> {
       const verificationId = randomUUID();
 
@@ -440,7 +485,13 @@ function guestBookingInput(
   appointmentId: string,
   startTime: string,
   endTime: string,
-  ids?: { businessId: string; serviceId: string; staffMemberId: string; verificationId?: string }
+  ids?: {
+    businessId: string;
+    displayName?: string;
+    serviceId: string;
+    staffMemberId: string;
+    verificationId?: string;
+  }
 ) {
   const businessId = ids?.businessId ?? "business-1";
 
@@ -460,8 +511,7 @@ function guestBookingInput(
     },
     guest: {
       businessId,
-      displayName: "Maria Lopez",
-      normalizedDisplayName: "maria lopez",
+      displayName: ids?.displayName ?? "Maria Lopez",
       normalizedPhone: "5551234567",
       phoneNumber: "555-123-4567"
     }

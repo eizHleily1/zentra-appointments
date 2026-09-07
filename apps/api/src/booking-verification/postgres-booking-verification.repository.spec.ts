@@ -15,7 +15,11 @@ import { PostgresBookingVerificationRepository } from "./postgres-booking-verifi
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgresql://appointment_saas:appointment_saas@localhost:5433/appointment_saas_dev";
 
-const schemaFiles = ["iteration-14-client-phone-name-identity.sql", "iteration-15-booking-phone-verification.sql"];
+const schemaFiles = [
+  "iteration-14-client-phone-name-identity.sql",
+  "iteration-15-booking-phone-verification.sql",
+  "iteration-16-client-name-identity.sql"
+];
 
 const NORMALIZED_PHONE = "5551234567";
 

@@ -1,4 +1,4 @@
-import { normalizeDisplayNameForMatch, normalizePhoneNumber } from "../src/clients/client-phone";
+import { normalizePhoneNumber } from "../src/clients/client-phone";
 import type {
   Client,
   ClientRepository,
@@ -7,6 +7,15 @@ import type {
   FindClientsOptions,
   UpdateClientInput
 } from "../src/clients/client.repository";
+
+/**
+ * Approximates PostgreSQL's `normalize_client_display_name` for the in-memory double only.
+ * The two engines case-fold some Unicode differently, so production never folds names in
+ * JavaScript; `PostgresClientRepository` is the authority and has its own Unicode test.
+ */
+function foldDisplayName(displayName: string): string {
+  return displayName.trim().toLowerCase();
+}
 
 export class InMemoryClientRepository implements ClientRepository {
   private readonly clients = new Map<string, Client>();
@@ -20,7 +29,7 @@ export class InMemoryClientRepository implements ClientRepository {
       const duplicate = this.matchActiveClientByNormalizedPhoneAndName({
         businessId: input.businessId,
         linkage: input.linkedUserId === null ? "unlinked" : "linked",
-        normalizedDisplayName: normalizeDisplayNameForMatch(input.displayName),
+        displayName: input.displayName,
         normalizedPhone
       });
 
@@ -118,7 +127,7 @@ export class InMemoryClientRepository implements ClientRepository {
         businessId,
         excludeClientId: clientId,
         linkage: client.linkedUserId === null ? "unlinked" : "linked",
-        normalizedDisplayName: normalizeDisplayNameForMatch(nextDisplayName),
+        displayName: nextDisplayName,
         normalizedPhone
       });
 
@@ -183,7 +192,7 @@ export class InMemoryClientRepository implements ClientRepository {
 
         return (
           normalizePhoneNumber(client.phoneNumber) === input.normalizedPhone &&
-          normalizeDisplayNameForMatch(client.displayName) === input.normalizedDisplayName
+          foldDisplayName(client.displayName) === foldDisplayName(input.displayName)
         );
       }) ?? null
     );

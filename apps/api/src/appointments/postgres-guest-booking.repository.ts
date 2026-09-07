@@ -143,6 +143,12 @@ async function resolveGuestClientInTransaction(
   return raced;
 }
 
+/**
+ * Name identity lives in `normalize_client_display_name`, the same function the unique
+ * indexes use. Folding in JavaScript instead misses for names where the two engines
+ * disagree (Turkish "İpek"), sending a legitimate repeat booking into a unique-violation
+ * retry that cannot find the winner and surfaces as a 500.
+ */
 async function findGuestClient(tx: DatabaseTransactionClient, guest: GuestClientIdentity): Promise<Client | null> {
   const result = await tx.query<ClientRow>(
     `
@@ -152,10 +158,10 @@ async function findGuestClient(tx: DatabaseTransactionClient, guest: GuestClient
         AND active = true
         AND linked_user_id IS NULL
         AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
-        AND lower(btrim(display_name)) = $3
+        AND normalize_client_display_name(display_name) = normalize_client_display_name($3)
       LIMIT 1
     `,
-    [guest.businessId, guest.normalizedPhone, guest.normalizedDisplayName]
+    [guest.businessId, guest.normalizedPhone, guest.displayName]
   );
 
   return result.rows[0] ? mapClient(result.rows[0]) : null;

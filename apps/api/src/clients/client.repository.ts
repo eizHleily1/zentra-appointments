@@ -36,9 +36,14 @@ export type ClientLinkage = "linked" | "unlinked";
 
 export interface FindClientIdentityInput {
   businessId: string;
+  /**
+   * Raw name as entered. PostgreSQL applies `normalize_client_display_name` to both this
+   * value and the stored column, matching the unique indexes. Callers must not
+   * pre-lowercase it: JavaScript and PostgreSQL case-fold some Unicode differently.
+   */
+  displayName: string;
   excludeClientId?: string;
   linkage: ClientLinkage;
-  normalizedDisplayName: string;
   normalizedPhone: string;
 }
 

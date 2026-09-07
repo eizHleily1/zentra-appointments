@@ -7,7 +7,6 @@ import { InMemoryGuestBookingRepository } from "./in-memory-guest-booking.reposi
 const GUEST = {
   businessId: "business-1",
   displayName: "Maria Lopez",
-  normalizedDisplayName: "maria lopez",
   normalizedPhone: "5551234567",
   phoneNumber: "555-123-4567"
 };
