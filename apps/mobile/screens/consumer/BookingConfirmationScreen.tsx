@@ -9,9 +9,12 @@ export function BookingConfirmationScreen({
 }: {
   confirmation: BookingConfirmationDetails;
   onDone: () => void;
-  onViewSchedule: () => void;
+  /** Account-backed bookings can open Schedule. Guest bookings omit this so the primary action stays on Explore. */
+  onViewSchedule?: () => void;
 }) {
   const { dayLine, timeLine } = formatConfirmationSchedule(confirmation.startsAt, confirmation.timezone);
+  const primaryLabel = onViewSchedule ? "View Schedule" : "Back to Explore";
+  const onPrimary = onViewSchedule ?? onDone;
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -26,8 +29,8 @@ export function BookingConfirmationScreen({
         <Text style={styles.detail}>{dayLine}</Text>
         <Text style={styles.time}>{timeLine}</Text>
       </View>
-      <Pressable onPress={onViewSchedule} style={styles.primaryButton}>
-        <Text style={styles.primaryButtonText}>View Schedule</Text>
+      <Pressable onPress={onPrimary} style={styles.primaryButton}>
+        <Text style={styles.primaryButtonText}>{primaryLabel}</Text>
       </Pressable>
       <Pressable onPress={onDone} style={styles.secondaryButton}>
         <Text style={styles.secondaryButtonText}>Done</Text>

@@ -604,11 +604,6 @@ export default function App() {
                 setClientScreen("home");
                 setExploreSearch("");
               }}
-              onViewSchedule={() => {
-                setBookingConfirmation(null);
-                setClientScreen("home");
-                setConsumerTab("schedule");
-              }}
             />
           ) : null}
         </>

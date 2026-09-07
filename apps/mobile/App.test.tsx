@@ -347,6 +347,17 @@ describe("App consumer Home tab from Explore stack", () => {
       startTime: "2030-07-02T07:00:00.000Z",
       verificationId: "verification-1"
     });
+
+    expect(screen.getByText("Back to Explore")).toBeTruthy();
+    expect(screen.queryByText("View Schedule")).toBeNull();
+
+    fireEvent.press(screen.getByText("Back to Explore"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Downtown Barber")).toBeTruthy();
+    });
+    expect(screen.queryByText("Sign in to see your schedule")).toBeNull();
+    expect(screen.queryByText("Appointment confirmed")).toBeNull();
   });
 
   it("requires phone verification before the confirm button appears", async () => {
@@ -639,23 +650,14 @@ describe("App consumer Home tab from Explore stack", () => {
     expect(screen.getByText("Send code")).toBeTruthy();
   });
 
-  it("ignores a stale booking failure after the guest changed the phone number", async () => {
-    let releaseBooking: (() => void) | null = null;
+  it("ignores a stale booking failure after the guest verified a new number and confirmed again", async () => {
+    const appointmentResolvers: Array<(value: ReturnType<typeof jsonResponse>) => void> = [];
     globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const method = (init?.method ?? "GET").toUpperCase();
 
       if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
         return new Promise((resolve) => {
-          releaseBooking = () =>
-            resolve(
-              jsonResponse(
-                {
-                  code: "booking_verification_invalid",
-                  message: "Verify your phone number before booking"
-                },
-                400
-              )
-            );
+          appointmentResolvers.push(resolve);
         });
       }
 
@@ -664,26 +666,46 @@ describe("App consumer Home tab from Explore stack", () => {
 
     render(<App />);
     await openDowntownBarberProfile();
-    await completeGuestBooking();
+    await enterGuestDetails("Maria Lopez", "555-123-4567");
+    await verifyGuestPhone();
+    fireEvent.press(screen.getByText("Confirm booking"));
 
     await waitFor(() => {
       expect(screen.getByText("Confirming...")).toBeTruthy();
     });
+    expect(appointmentResolvers).toHaveLength(1);
 
     fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+    await verifyGuestPhone();
 
-    expect(screen.getByText("Send code")).toBeTruthy();
-    expect(screen.queryByText("Phone verified")).toBeNull();
-    expect(screen.queryByText("Verify your phone number before booking")).toBeNull();
+    // Phone change must clear booking=true so Confirm is usable for the new number.
+    expect(screen.getByText("Confirm booking")).toBeTruthy();
+    expect(screen.queryByText("Confirming...")).toBeNull();
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Confirming...")).toBeTruthy();
+    });
+    expect(appointmentResolvers).toHaveLength(2);
 
     await act(async () => {
-      releaseBooking?.();
+      appointmentResolvers[0](
+        jsonResponse(
+          {
+            code: "booking_verification_invalid",
+            message: "Verify your phone number before booking"
+          },
+          400
+        )
+      );
     });
 
-    // The abandoned booking's invalid-verification failure belongs to the old number.
+    // The abandoned phone-A failure must not clear the phone-B spinner or verified state.
+    expect(screen.getByText("Confirming...")).toBeTruthy();
     expect(screen.queryByText("Verify your phone number before booking")).toBeNull();
-    expect(screen.getByText("Send code")).toBeTruthy();
-    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.getByText("Phone verified")).toBeTruthy();
     expect(screen.getByDisplayValue("555-000-1111")).toBeTruthy();
   });
 
@@ -1489,25 +1511,46 @@ describe("BusinessesScreen", () => {
 });
 
 describe("BookingConfirmationScreen", () => {
+  const confirmation = {
+    businessName: "RK Barber",
+    serviceName: "Haircut",
+    staffName: "Sam",
+    startsAt: "2030-07-02T07:30:00.000Z",
+    timezone: "Asia/Amman"
+  };
+
   it("renders confirmation details without ISO timestamps", () => {
-    render(
-      <BookingConfirmationScreen
-        confirmation={{
-          businessName: "RK Barber",
-          serviceName: "Haircut",
-          staffName: "Sam",
-          startsAt: "2030-07-02T07:30:00.000Z",
-          timezone: "Asia/Amman"
-        }}
-        onDone={() => undefined}
-        onViewSchedule={() => undefined}
-      />
-    );
+    render(<BookingConfirmationScreen confirmation={confirmation} onDone={() => undefined} />);
 
     expect(screen.getByText("Appointment confirmed")).toBeTruthy();
     expect(screen.getByText("RK Barber")).toBeTruthy();
     expect(screen.getByText("Haircut")).toBeTruthy();
     expect(screen.queryByText(/2030-07-02T/)).toBeNull();
+  });
+
+  it("sends guests back to Explore instead of Schedule", () => {
+    const onDone = jest.fn();
+    render(<BookingConfirmationScreen confirmation={confirmation} onDone={onDone} />);
+
+    expect(screen.getByText("Back to Explore")).toBeTruthy();
+    expect(screen.queryByText("View Schedule")).toBeNull();
+    fireEvent.press(screen.getByText("Back to Explore"));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps View Schedule for account-backed confirmations", () => {
+    const onViewSchedule = jest.fn();
+    render(
+      <BookingConfirmationScreen
+        confirmation={confirmation}
+        onDone={() => undefined}
+        onViewSchedule={onViewSchedule}
+      />
+    );
+
+    expect(screen.getByText("View Schedule")).toBeTruthy();
+    fireEvent.press(screen.getByText("View Schedule"));
+    expect(onViewSchedule).toHaveBeenCalledTimes(1);
   });
 });
 
