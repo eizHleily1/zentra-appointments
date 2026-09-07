@@ -644,7 +644,7 @@ This adds the `booking_phone_verifications` challenge table for public guest boo
 No SMS vendor is integrated yet. `PHONE_VERIFICATION_PROVIDER` selects the sender, and `log` is the only implementation:
 
 - `log` writes to the application log and delivers nothing. Startup **fails** when `NODE_ENV=production` uses it, so production can never issue a challenge that no guest can complete.
-- Set `PHONE_VERIFICATION_LOG_CODES=true` to print the plaintext code locally. This is an explicit opt-in rather than a "not production" default, so staging, preview, and CI hosts do not log usable codes. Startup also fails if it is enabled in production.
+- Set `PHONE_VERIFICATION_LOG_CODES=true` in your own local `.env` to print the plaintext code. This is an explicit opt-in rather than a "not production" default, and it ships as `false` in `.env.example`, so staging, preview, and CI hosts do not log usable codes. Startup also fails if it is enabled in production.
 
 Tests read codes from `FakePhoneVerificationSender` and never depend on application logs.
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import App, {
   AppointmentListCard,
   BookAppointmentScreen,
@@ -330,10 +330,12 @@ describe("App consumer Home tab from Explore stack", () => {
     const verificationCall = findFetchCall("/discovery/businesses/biz-1/booking-verifications");
     expect(JSON.parse(String(verificationCall?.[1]?.body))).toEqual({ phoneNumber: "555-123-4567" });
 
-    const verifyCall = findFetchCall(
-      "/discovery/businesses/biz-1/booking-verifications/verification-1/verify"
-    );
-    expect(JSON.parse(String(verifyCall?.[1]?.body))).toEqual({ code: "123456" });
+    // The challenge id travels in the body so it never reaches access logs via the URL.
+    const verifyCall = findFetchCall("/discovery/businesses/biz-1/booking-verifications/verify");
+    expect(JSON.parse(String(verifyCall?.[1]?.body))).toEqual({
+      code: "123456",
+      verificationId: "verification-1"
+    });
 
     const appointmentCall = findFetchCall("/discovery/businesses/biz-1/appointments");
     expect(appointmentCall).toBeDefined();
@@ -471,7 +473,12 @@ describe("App consumer Home tab from Explore stack", () => {
       const method = (init?.method ?? "GET").toUpperCase();
 
       if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
-        return Promise.resolve(jsonResponse({ message: "Verify your phone number before booking" }, 400));
+        return Promise.resolve(
+          jsonResponse(
+            { code: "booking_verification_invalid", message: "Verify your phone number before booking" },
+            400
+          )
+        );
       }
 
       return mockConsumerApi(input, init);
@@ -492,6 +499,119 @@ describe("App consumer Home tab from Explore stack", () => {
 
     await verifyGuestPhone();
     expect(screen.getByText("Confirm booking")).toBeTruthy();
+  });
+
+  it("keeps the verified challenge when booking fails for a reason unrelated to verification", async () => {
+    let bookingAttempts = 0;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        bookingAttempts += 1;
+
+        if (bookingAttempts === 1) {
+          // A plain 400 with no verification marker: the slot drifted into the past.
+          return Promise.resolve(
+            jsonResponse({ message: "Appointment start time must be in the future" }, 400)
+          );
+        }
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment start time must be in the future")).toBeTruthy();
+    });
+
+    // Nothing about the challenge changed, so the guest keeps it and can just retry.
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+    expect(screen.queryByText("Send code")).toBeNull();
+
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+  });
+
+  it("ignores a code response that arrives after the guest changed the phone number", async () => {
+    let releaseVerificationRequest: (() => void) | null = null;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/booking-verifications")) {
+        return new Promise((resolve) => {
+          releaseVerificationRequest = () => resolve(jsonResponse({ verificationId: "verification-stale" }));
+        });
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sending code...")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+
+    await act(async () => {
+      releaseVerificationRequest?.();
+    });
+
+    // The in-flight challenge belonged to the old number and must not come back.
+    expect(screen.getByText("Send code")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("6-digit code")).toBeNull();
+  });
+
+  it("ignores a verify response that arrives after the guest changed the phone number", async () => {
+    let releaseVerify: (() => void) | null = null;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/verify")) {
+        return new Promise((resolve) => {
+          releaseVerify = () => resolve(jsonResponse({ verified: true }));
+        });
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), "123456");
+    fireEvent.press(screen.getByText("Verify code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Checking code...")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+
+    await act(async () => {
+      releaseVerify?.();
+    });
+
+    // Verifying the old number must not mark the new number as verified.
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.getByText("Send code")).toBeTruthy();
   });
 
   it("clears the verification when the phone number is edited", async () => {

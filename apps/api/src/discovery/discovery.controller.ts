@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { AppointmentsService } from "../appointments/appointments.service";
 import { BookingVerificationService } from "../booking-verification/booking-verification.service";
 import { GetAvailableSlotsQueryDto } from "../appointments/dto/get-available-slots-query.dto";
@@ -56,17 +56,16 @@ export class DiscoveryController {
     });
   }
 
-  @Post("businesses/:businessId/booking-verifications/:verificationId/verify")
+  @Post("businesses/:businessId/booking-verifications/verify")
   @UseGuards(BookingVerificationCheckRateLimitGuard)
   verifyBookingVerification(
     @Param("businessId") businessId: string,
-    @Param("verificationId", new ParseUUIDPipe()) verificationId: string,
     @Body() body: VerifyBookingVerificationDto
   ) {
     return this.bookingVerificationService.verifyCode({
       businessId,
       code: body.code,
-      verificationId
+      verificationId: body.verificationId
     });
   }
 

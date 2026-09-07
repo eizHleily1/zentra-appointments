@@ -477,19 +477,26 @@ describe("DiscoveryController", () => {
       .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
       .send({ phoneNumber: "555-123-4567" })
       .expect(201);
-    const verifyUrl = `/discovery/businesses/${setup.business.id}/booking-verifications/${challenge.body.verificationId}/verify`;
+    const verifyUrl = `/discovery/businesses/${setup.business.id}/booking-verifications/verify`;
+    const verificationId = challenge.body.verificationId;
     const correctCode = verificationSender.lastCodeFor("555-123-4567");
     const wrongCode = ((Number(correctCode) + 1) % 1_000_000).toString().padStart(6, "0");
 
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const failed = await request(app.getHttpServer()).post(verifyUrl).send({ code: wrongCode }).expect(400);
+      const failed = await request(app.getHttpServer())
+        .post(verifyUrl)
+        .send({ code: wrongCode, verificationId })
+        .expect(400);
       expect(failed.body.message).toBe("Verification code is invalid or expired");
     }
 
-    const exhausted = await request(app.getHttpServer()).post(verifyUrl).send({ code: wrongCode }).expect(400);
+    const exhausted = await request(app.getHttpServer())
+      .post(verifyUrl)
+      .send({ code: wrongCode, verificationId })
+      .expect(400);
     expect(exhausted.body.message).toBe("Too many incorrect codes. Request a new code.");
 
-    await request(app.getHttpServer()).post(verifyUrl).send({ code: correctCode }).expect(400);
+    await request(app.getHttpServer()).post(verifyUrl).send({ code: correctCode, verificationId }).expect(400);
   });
 
   it("rejects an expired verification code", async () => {
@@ -505,10 +512,11 @@ describe("DiscoveryController", () => {
     verificationRepository.expireVerification(challenge.body.verificationId);
 
     const response = await request(app.getHttpServer())
-      .post(
-        `/discovery/businesses/${setup.business.id}/booking-verifications/${challenge.body.verificationId}/verify`
-      )
-      .send({ code: verificationSender.lastCodeFor("555-123-4567") })
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications/verify`)
+      .send({
+        code: verificationSender.lastCodeFor("555-123-4567"),
+        verificationId: challenge.body.verificationId
+      })
       .expect(400);
 
     expect(response.body.message).toBe("Verification code expired");
@@ -667,6 +675,68 @@ describe("DiscoveryController", () => {
     expect(mine.body).toEqual([]);
   });
 
+  it("tags an unusable challenge with a machine-readable code and leaves other 400s untagged", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+    const unverified = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
+      .send({ phoneNumber: "555-123-4567" })
+      .expect(201);
+
+    const rejected = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId: unverified.body.verificationId
+        })
+      )
+      .expect(400);
+
+    expect(rejected.body.code).toBe("booking_verification_invalid");
+    expect(rejected.body.message).toBe("Verify your phone number before booking");
+
+    // A booking rejected for an unrelated reason must not carry the marker, so clients
+    // keep a challenge that is still perfectly usable.
+    const verificationId = await verifyGuestPhone(app, verificationSender, setup.business.id, "555-123-4567");
+    const pastBooking = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, "2020-01-01T10:00:00.000Z", {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId
+        })
+      )
+      .expect(400);
+
+    expect(pastBooking.body.code).toBeUndefined();
+  });
+
+  it("no longer accepts the verification id in the URL path", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+
+    const challenge = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
+      .send({ phoneNumber: "555-123-4567" })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(
+        `/discovery/businesses/${setup.business.id}/booking-verifications/${challenge.body.verificationId}/verify`
+      )
+      .send({ code: verificationSender.lastCodeFor("555-123-4567") })
+      .expect(404);
+  });
+
   it("rate limits verification code requests from the connection address", async () => {
     const businessId = randomUUID();
     const max = Number(process.env.GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX ?? 5);
@@ -694,15 +764,15 @@ describe("DiscoveryController", () => {
 
     for (let attempt = 0; attempt < max; attempt += 1) {
       await request(app.getHttpServer())
-        .post(`/discovery/businesses/${businessId}/booking-verifications/${verificationId}/verify`)
+        .post(`/discovery/businesses/${businessId}/booking-verifications/verify`)
         .set("x-forwarded-for", `198.51.100.${attempt}`)
-        .send({ code: "000000" });
+        .send({ code: "000000", verificationId });
     }
 
     const response = await request(app.getHttpServer())
-      .post(`/discovery/businesses/${businessId}/booking-verifications/${verificationId}/verify`)
+      .post(`/discovery/businesses/${businessId}/booking-verifications/verify`)
       .set("x-forwarded-for", "203.0.113.1")
-      .send({ code: "000000" })
+      .send({ code: "000000", verificationId })
       .expect(429);
 
     expect(response.body.message).toBe("Too many verification attempts");
@@ -968,8 +1038,8 @@ async function verifyGuestPhone(
     .expect(201);
 
   await request(app.getHttpServer())
-    .post(`/discovery/businesses/${businessId}/booking-verifications/${challenge.body.verificationId}/verify`)
-    .send({ code: sender.lastCodeFor(phoneNumber) })
+    .post(`/discovery/businesses/${businessId}/booking-verifications/verify`)
+    .send({ code: sender.lastCodeFor(phoneNumber), verificationId: challenge.body.verificationId })
     .expect(201);
 
   return challenge.body.verificationId;

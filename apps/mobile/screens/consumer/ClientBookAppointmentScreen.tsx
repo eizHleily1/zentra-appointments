@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { DateStripPicker } from "../../components/DateStripPicker";
-import { apiErrorStatus } from "../../lib/api";
+import { isInvalidVerificationError } from "../../lib/api";
 import { SlotGrid } from "../../components/SlotGrid";
 import { buildDateStripOptions, formatDateKey } from "../../lib/dates";
 import { formatServicePriceDisplay } from "../../lib/formatters";
@@ -74,6 +74,7 @@ export function ClientBookAppointmentScreen({
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
+  const verificationRequestRef = useRef(0);
 
   const selectedService = business.services.find((service) => service.id === selectedServiceId);
   const selectedStaff = business.staff.find((member) => member.id === selectedStaffMemberId);
@@ -127,14 +128,28 @@ export function ClientBookAppointmentScreen({
     setSelectedStartTime("");
   }
 
+  // Every request that can write verification state claims a ticket first. Editing the
+  // phone number or starting a newer request burns the outstanding ones, so a slow
+  // response can never restore state that belongs to a phone number the guest left.
+  function claimVerificationRequest(): () => boolean {
+    const ticket = (verificationRequestRef.current += 1);
+
+    return () => verificationRequestRef.current === ticket;
+  }
+
+  function clearVerification() {
+    setVerificationStep("idle");
+    setVerificationId("");
+    setVerificationCode("");
+  }
+
   // A challenge is tied to the phone number, so editing the number invalidates it.
   // Changing the name or the slot does not, which is what lets a guest retry after a
   // slot is taken without asking for another code.
   function changePhoneNumber(value: string) {
+    verificationRequestRef.current += 1;
     setPhoneNumber(value);
-    setVerificationStep("idle");
-    setVerificationId("");
-    setVerificationCode("");
+    clearVerification();
     setVerificationError(null);
     setBookingError(null);
   }
@@ -144,6 +159,9 @@ export function ClientBookAppointmentScreen({
       setVerificationError("Enter a phone number");
       return;
     }
+
+    const isCurrent = claimVerificationRequest();
+    const heldVerificationId = verificationId;
 
     setVerificationStep("sending");
     setVerificationError(null);
@@ -158,29 +176,47 @@ export function ClientBookAppointmentScreen({
         }
       );
 
+      if (!isCurrent()) {
+        return;
+      }
+
       setVerificationId(challenge.verificationId);
       setVerificationCode("");
       setVerificationStep("sent");
     } catch (error: unknown) {
+      if (!isCurrent()) {
+        return;
+      }
+
       // A rejected resend (throttled, offline) says nothing about the challenge the guest
       // already holds, so keep the code entry visible instead of forcing a restart.
-      setVerificationStep(verificationId ? "sent" : "idle");
+      setVerificationStep(heldVerificationId ? "sent" : "idle");
       setVerificationError(error instanceof Error ? error.message : "Could not send a verification code");
     }
   }
 
   async function verifyCode() {
+    const isCurrent = claimVerificationRequest();
+
     setVerificationStep("verifying");
     setVerificationError(null);
 
     try {
-      await request(`/discovery/businesses/${business.id}/booking-verifications/${verificationId}/verify`, {
-        body: JSON.stringify({ code: verificationCode.trim() }),
+      await request(`/discovery/businesses/${business.id}/booking-verifications/verify`, {
+        body: JSON.stringify({ code: verificationCode.trim(), verificationId }),
         method: "POST"
       });
 
+      if (!isCurrent()) {
+        return;
+      }
+
       setVerificationStep("verified");
     } catch (error: unknown) {
+      if (!isCurrent()) {
+        return;
+      }
+
       setVerificationStep("sent");
       setVerificationError(error instanceof Error ? error.message : "Could not verify that code");
     }
@@ -196,6 +232,11 @@ export function ClientBookAppointmentScreen({
       setBookingError("Enter your name");
       return;
     }
+
+    // Booking does not issue a challenge, so it only reads the ticket rather than taking
+    // one: a late failure must not clear a challenge the guest has since replaced.
+    const bookedTicket = verificationRequestRef.current;
+    const isCurrent = () => verificationRequestRef.current === bookedTicket;
 
     setBooking(true);
     setBookingError(null);
@@ -226,13 +267,11 @@ export function ClientBookAppointmentScreen({
         timezone: business.timezone
       });
     } catch (error: unknown) {
-      // The API rejects the booking with 400 when the challenge is expired, consumed, or
-      // otherwise unusable. Dropping the verified state is the only way back to a working
-      // flow. A 409 only means the slot went away, so the challenge stays usable.
-      if (apiErrorStatus(error) === 400) {
-        setVerificationStep("idle");
-        setVerificationId("");
-        setVerificationCode("");
+      // Only drop the verified state when the API says the challenge itself is unusable.
+      // Booking also returns 400 for a past start time, changed business hours, or an
+      // inactive service, and those are all fixable while keeping the same challenge.
+      if (isInvalidVerificationError(error) && isCurrent()) {
+        clearVerification();
         setVerificationError(null);
       }
 

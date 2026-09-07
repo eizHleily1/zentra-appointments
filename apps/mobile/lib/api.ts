@@ -17,19 +17,35 @@ export function getApiBaseUrl(): string {
 
 const API_URL = getApiBaseUrl();
 
-/** Carries the HTTP status so callers can tell a retryable failure from a rejected input. */
+/** Mirrors BOOKING_VERIFICATION_INVALID_CODE on the API. */
+const BOOKING_VERIFICATION_INVALID_CODE = "booking_verification_invalid";
+
+/**
+ * Carries the HTTP status and the API's machine-readable error code, so callers can tell
+ * a retryable failure from a rejected input without matching on message text.
+ */
 export class ApiError extends Error {
+  readonly code: string | null;
   readonly status: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code: string | null = null) {
     super(message);
     this.name = "ApiError";
+    this.code = code;
     this.status = status;
   }
 }
 
 export function apiErrorStatus(error: unknown): number | null {
   return error instanceof ApiError ? error.status : null;
+}
+
+/**
+ * True only when the API says the verification challenge itself is unusable. Booking also
+ * returns 400 for unrelated reasons, and those must not discard a valid challenge.
+ */
+export function isInvalidVerificationError(error: unknown): boolean {
+  return error instanceof ApiError && error.code === BOOKING_VERIFICATION_INVALID_CODE;
 }
 
 export interface ApiAuthSession {
@@ -46,7 +62,7 @@ export async function apiFetch<T>(
   const { data, response } = await executeRequest(path, options, accessToken ?? null);
 
   if (!response.ok) {
-    throw new ApiError(errorMessage(data), response.status);
+    throw new ApiError(errorMessage(data), response.status, errorCode(data));
   }
 
   return data as T;
@@ -106,7 +122,7 @@ export function createApiClient(session: ApiAuthSession) {
     }
 
     if (!response.ok) {
-      throw new ApiError(errorMessage(data), response.status);
+      throw new ApiError(errorMessage(data), response.status, errorCode(data));
     }
 
     return data as T;
@@ -158,6 +174,18 @@ async function executeRequest(
   const data = text.length > 0 ? JSON.parse(text) : null;
 
   return { data, response };
+}
+
+function errorCode(data: unknown): string | null {
+  if (data && typeof data === "object" && "code" in data) {
+    const code = (data as { code?: unknown }).code;
+
+    if (typeof code === "string" && code.length > 0) {
+      return code;
+    }
+  }
+
+  return null;
 }
 
 function errorMessage(data: unknown): string {

@@ -9,6 +9,7 @@ import { createDefaultBusinessHours } from "../businesses/default-business-hours
 import { ClientsService } from "../clients/clients.service";
 import { SERVICE_REPOSITORY, type ServiceRepository } from "../services/service.repository";
 import { STAFF_REPOSITORY, type StaffRepository } from "../staff/staff.repository";
+import { BookingVerificationRequiredException } from "./booking-verification-required.exception";
 import {
   APPOINTMENT_REPOSITORY,
   type Appointment,
@@ -135,7 +136,7 @@ export class AppointmentsService {
       }
 
       if (error instanceof GuestBookingVerificationError) {
-        throw new BadRequestException(error.message);
+        throw new BookingVerificationRequiredException(error.message);
       }
 
       throw error;
