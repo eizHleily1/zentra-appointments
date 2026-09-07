@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import App, {
   AppointmentListCard,
   BookAppointmentScreen,
   BusinessCard,
   BusinessProfileScreen,
   buildBookAppointmentPayload,
+  buildBookingVerificationRequestPayload,
   buildConsumerBookAppointmentPayload,
   CategoryBusinessListScreen,
   formatAppointmentStatus,
@@ -118,6 +119,18 @@ function mockConsumerApi(input: RequestInfo | URL, init?: RequestInit) {
     return jsonResponse([{ endTime: "2030-07-02T07:30:00.000Z", label: "10:00", startTime: "2030-07-02T07:00:00.000Z" }]);
   }
 
+  if (method === "POST" && pathname.endsWith("/booking-verifications")) {
+    return jsonResponse({
+      attemptsRemaining: 5,
+      expiresAt: "2030-07-02T07:05:00.000Z",
+      verificationId: "verification-1"
+    });
+  }
+
+  if (method === "POST" && pathname.endsWith("/verify")) {
+    return jsonResponse({ verified: true });
+  }
+
   if (method === "POST" && pathname.includes("/discovery/businesses/") && pathname.endsWith("/appointments")) {
     return jsonResponse({ startsAt: "2030-07-02T07:00:00.000Z" });
   }
@@ -153,20 +166,47 @@ async function openDowntownBarberProfile() {
   });
 }
 
-async function signInFromBookingPrompt() {
+async function openBookingScreen() {
   fireEvent.press(screen.getByText("Book appointment"));
-
-  await waitFor(() => {
-    expect(screen.getByText("Sign in to book")).toBeTruthy();
-  });
-
-  fireEvent.changeText(screen.getByPlaceholderText("Email"), "client@example.com");
-  fireEvent.changeText(screen.getByPlaceholderText("Password"), "strong-password");
-  fireEvent.press(screen.getByText("Create account"));
 
   await waitFor(() => {
     expect(screen.getByText("Book at Downtown Barber")).toBeTruthy();
   });
+}
+
+async function enterGuestDetails(name = "Maria Lopez", phone = "555-123-4567") {
+  await openBookingScreen();
+
+  fireEvent.press(screen.getByText("Haircut"));
+
+  await waitFor(() => {
+    expect(screen.getByText("10:00")).toBeTruthy();
+  });
+
+  fireEvent.press(screen.getByText("10:00"));
+  fireEvent.changeText(screen.getByPlaceholderText("Your name"), name);
+  fireEvent.changeText(screen.getByPlaceholderText("Phone number"), phone);
+}
+
+async function verifyGuestPhone(code = "123456") {
+  fireEvent.press(screen.getByText("Send code"));
+
+  await waitFor(() => {
+    expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+  });
+
+  fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), code);
+  fireEvent.press(screen.getByText("Verify code"));
+
+  await waitFor(() => {
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+  });
+}
+
+async function completeGuestBooking(name = "Maria Lopez", phone = "555-123-4567") {
+  await enterGuestDetails(name, phone);
+  await verifyGuestPhone();
+  fireEvent.press(screen.getByText("Confirm booking"));
 }
 
 function pressConsumerTab(label: "Home" | "Explore" | "Schedule" | "Profile") {
@@ -253,32 +293,460 @@ describe("App consumer Home tab from Explore stack", () => {
     expect(screen.queryByText("Book appointment")).toBeNull();
   });
 
+  it("does not open auth when starting a booking", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    fireEvent.press(screen.getByText("Book appointment"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Book at Downtown Barber")).toBeTruthy();
+    });
+    expect(screen.queryByText("Sign in")).toBeNull();
+    expect(screen.queryByPlaceholderText("Email")).toBeNull();
+  });
+
   it("renders Home after Explore → booking flow → Home", async () => {
     render(<App />);
     await openDowntownBarberProfile();
-    await signInFromBookingPrompt();
+    await openBookingScreen();
 
     pressConsumerTab("Home");
 
     await waitFor(() => {
-      expect(screen.getByText("You have no upcoming appointments.")).toBeTruthy();
+      expect(screen.getByText("Browse local businesses and book appointments in one place.")).toBeTruthy();
     });
     expect(screen.queryByText("Book at Downtown Barber")).toBeNull();
+  });
+
+  it("lets a guest book from business profile through confirmation", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+
+    const verificationCall = findFetchCall("/discovery/businesses/biz-1/booking-verifications");
+    expect(JSON.parse(String(verificationCall?.[1]?.body))).toEqual({ phoneNumber: "555-123-4567" });
+
+    // The challenge id travels in the body so it never reaches access logs via the URL.
+    const verifyCall = findFetchCall("/discovery/businesses/biz-1/booking-verifications/verify");
+    expect(JSON.parse(String(verifyCall?.[1]?.body))).toEqual({
+      code: "123456",
+      verificationId: "verification-1"
+    });
+
+    const appointmentCall = findFetchCall("/discovery/businesses/biz-1/appointments");
+    expect(appointmentCall).toBeDefined();
+    expect(JSON.parse(String(appointmentCall?.[1]?.body))).toEqual({
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567",
+      serviceId: "svc-1",
+      staffMemberId: "staff-1",
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "verification-1"
+    });
+
+    expect(screen.getByText("Back to Explore")).toBeTruthy();
+    expect(screen.queryByText("View Schedule")).toBeNull();
+
+    fireEvent.press(screen.getByText("Back to Explore"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Downtown Barber")).toBeTruthy();
+    });
+    expect(screen.queryByText("Sign in to see your schedule")).toBeNull();
+    expect(screen.queryByText("Appointment confirmed")).toBeNull();
+  });
+
+  it("requires phone verification before the confirm button appears", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+
+    expect(screen.getByText("Verify your phone number to confirm this booking.")).toBeTruthy();
+    expect(screen.queryByText("Confirm booking")).toBeNull();
+    expect(findFetchCall("/discovery/businesses/biz-1/appointments")).toBeUndefined();
+  });
+
+  it("shows the server message when a code is rejected and keeps the guest on the code step", async () => {
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/verify")) {
+        return Promise.resolve(jsonResponse({ message: "Verification code is invalid or expired" }, 400));
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), "000000");
+    fireEvent.press(screen.getByText("Verify code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Verification code is invalid or expired")).toBeTruthy();
+    });
+    expect(screen.getByText("Verify code")).toBeTruthy();
+    expect(screen.queryByText("Confirm booking")).toBeNull();
+  });
+
+  it("keeps the phone verified when the slot became unavailable", async () => {
+    let bookingAttempts = 0;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      const pathname = fetchPathname(input);
+
+      if (method === "POST" && pathname.includes("/discovery/businesses/") && pathname.endsWith("/appointments")) {
+        bookingAttempts += 1;
+
+        if (bookingAttempts === 1) {
+          return Promise.resolve(
+            jsonResponse({ message: "This appointment slot is no longer available" }, 409)
+          );
+        }
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("This appointment slot is no longer available")).toBeTruthy();
+    });
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+  });
+
+  it("keeps the existing challenge and the code input when a resend is throttled", async () => {
+    let verificationRequests = 0;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/booking-verifications")) {
+        verificationRequests += 1;
+
+        if (verificationRequests > 1) {
+          return Promise.resolve(
+            jsonResponse({ message: "Wait before requesting another verification code" }, 429)
+          );
+        }
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByText("Resend code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Wait before requesting another verification code")).toBeTruthy();
+    });
+
+    // The first code is still valid, so the guest can finish with it.
+    expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+
+    fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), "123456");
+    fireEvent.press(screen.getByText("Verify code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Phone verified")).toBeTruthy();
+    });
+  });
+
+  it("lets the guest request a new code when booking rejects an unusable verification", async () => {
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        return Promise.resolve(
+          jsonResponse(
+            { code: "booking_verification_invalid", message: "Verify your phone number before booking" },
+            400
+          )
+        );
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("Verify your phone number before booking")).toBeTruthy();
+    });
+
+    // The stale verified state is dropped so the guest is not stuck on a dead Confirm.
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.queryByText("Confirm booking")).toBeNull();
+    expect(screen.getByText("Send code")).toBeTruthy();
+
+    await verifyGuestPhone();
+    expect(screen.getByText("Confirm booking")).toBeTruthy();
+  });
+
+  it("keeps the verified challenge when booking fails for a reason unrelated to verification", async () => {
+    let bookingAttempts = 0;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        bookingAttempts += 1;
+
+        if (bookingAttempts === 1) {
+          // A plain 400 with no verification marker: the slot drifted into the past.
+          return Promise.resolve(
+            jsonResponse({ message: "Appointment start time must be in the future" }, 400)
+          );
+        }
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment start time must be in the future")).toBeTruthy();
+    });
+
+    // Nothing about the challenge changed, so the guest keeps it and can just retry.
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+    expect(screen.queryByText("Send code")).toBeNull();
+
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+  });
+
+  it("does not reset OTP state when booking validation lacks the verification error code", async () => {
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        return Promise.resolve(
+          jsonResponse({ message: "A verified phone number is required to book" }, 400)
+        );
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("A verified phone number is required to book")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+    expect(screen.getByText("Confirm booking")).toBeTruthy();
+  });
+
+  it("ignores a code response that arrives after the guest changed the phone number", async () => {
+    let releaseVerificationRequest: (() => void) | null = null;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/booking-verifications")) {
+        return new Promise((resolve) => {
+          releaseVerificationRequest = () => resolve(jsonResponse({ verificationId: "verification-stale" }));
+        });
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Sending code...")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+
+    await act(async () => {
+      releaseVerificationRequest?.();
+    });
+
+    // The in-flight challenge belonged to the old number and must not come back.
+    expect(screen.getByText("Send code")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("6-digit code")).toBeNull();
+  });
+
+  it("ignores a verify response that arrives after the guest changed the phone number", async () => {
+    let releaseVerify: (() => void) | null = null;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/verify")) {
+        return new Promise((resolve) => {
+          releaseVerify = () => resolve(jsonResponse({ verified: true }));
+        });
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), "123456");
+    fireEvent.press(screen.getByText("Verify code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Checking code...")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+
+    await act(async () => {
+      releaseVerify?.();
+    });
+
+    // Verifying the old number must not mark the new number as verified.
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.getByText("Send code")).toBeTruthy();
+  });
+
+  it("ignores a stale booking failure after the guest verified a new number and confirmed again", async () => {
+    const appointmentResolvers: Array<(value: ReturnType<typeof jsonResponse>) => void> = [];
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/appointments")) {
+        return new Promise((resolve) => {
+          appointmentResolvers.push(resolve);
+        });
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails("Maria Lopez", "555-123-4567");
+    await verifyGuestPhone();
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Confirming...")).toBeTruthy();
+    });
+    expect(appointmentResolvers).toHaveLength(1);
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+    await verifyGuestPhone();
+
+    // Phone change must clear booking=true so Confirm is usable for the new number.
+    expect(screen.getByText("Confirm booking")).toBeTruthy();
+    expect(screen.queryByText("Confirming...")).toBeNull();
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Confirming...")).toBeTruthy();
+    });
+    expect(appointmentResolvers).toHaveLength(2);
+
+    await act(async () => {
+      appointmentResolvers[0](
+        jsonResponse(
+          {
+            code: "booking_verification_invalid",
+            message: "Verify your phone number before booking"
+          },
+          400
+        )
+      );
+    });
+
+    // The abandoned phone-A failure must not clear the phone-B spinner or verified state.
+    expect(screen.getByText("Confirming...")).toBeTruthy();
+    expect(screen.queryByText("Verify your phone number before booking")).toBeNull();
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+    expect(screen.getByDisplayValue("555-000-1111")).toBeTruthy();
+  });
+
+  it("clears the verification when the phone number is edited", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    await verifyGuestPhone();
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.getByText("Send code")).toBeTruthy();
+  });
+
+  it("lets a signed-in consumer book without using JWT identity", async () => {
+    render(<App />);
+    await signInFromProfile();
+    pressConsumerTab("Explore");
+    await openDowntownBarberProfile();
+    await completeGuestBooking("Alex Lopez", "555-000-1111");
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+
+    const appointmentCall = findFetchCall("/discovery/businesses/biz-1/appointments");
+    expect(JSON.parse(String(appointmentCall?.[1]?.body))).toEqual({
+      displayName: "Alex Lopez",
+      phoneNumber: "555-000-1111",
+      serviceId: "svc-1",
+      staffMemberId: "staff-1",
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "verification-1"
+    });
   });
 
   it("renders Home after Explore → confirmation → Home", async () => {
     render(<App />);
     await openDowntownBarberProfile();
-    await signInFromBookingPrompt();
-
-    fireEvent.press(screen.getByText("Haircut"));
-
-    await waitFor(() => {
-      expect(screen.getByText("10:00")).toBeTruthy();
-    });
-
-    fireEvent.press(screen.getByText("10:00"));
-    fireEvent.press(screen.getByText("Confirm booking"));
+    await completeGuestBooking();
 
     await waitFor(() => {
       expect(screen.getByText("Appointment confirmed")).toBeTruthy();
@@ -287,7 +755,7 @@ describe("App consumer Home tab from Explore stack", () => {
     pressConsumerTab("Home");
 
     await waitFor(() => {
-      expect(screen.getByText("You have no upcoming appointments.")).toBeTruthy();
+      expect(screen.getByText("Browse local businesses and book appointments in one place.")).toBeTruthy();
     });
     expect(screen.queryByText("Appointment confirmed")).toBeNull();
   });
@@ -497,19 +965,33 @@ describe("BookAppointmentScreen", () => {
 });
 
 describe("buildConsumerBookAppointmentPayload", () => {
-  it("does not include clientId", () => {
+  it("includes guest details and does not include clientId", () => {
     const payload = buildConsumerBookAppointmentPayload({
+      displayName: " Maria Lopez ",
+      phoneNumber: " 555-123-4567 ",
       serviceId: "00000000-0000-4000-8000-000000000002",
       staffMemberId: "00000000-0000-4000-8000-000000000003",
-      startTime: "2030-07-02T07:00:00.000Z"
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "00000000-0000-4000-8000-000000000004"
     });
 
     expect(payload).toEqual({
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567",
       serviceId: "00000000-0000-4000-8000-000000000002",
       staffMemberId: "00000000-0000-4000-8000-000000000003",
-      startTime: "2030-07-02T07:00:00.000Z"
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "00000000-0000-4000-8000-000000000004"
     });
     expect(payload).not.toHaveProperty("clientId");
+  });
+});
+
+describe("buildBookingVerificationRequestPayload", () => {
+  it("trims the phone number and sends nothing else", () => {
+    expect(buildBookingVerificationRequestPayload({ phoneNumber: " 555-123-4567 " })).toEqual({
+      phoneNumber: "555-123-4567"
+    });
   });
 });
 
@@ -1029,25 +1511,46 @@ describe("BusinessesScreen", () => {
 });
 
 describe("BookingConfirmationScreen", () => {
+  const confirmation = {
+    businessName: "RK Barber",
+    serviceName: "Haircut",
+    staffName: "Sam",
+    startsAt: "2030-07-02T07:30:00.000Z",
+    timezone: "Asia/Amman"
+  };
+
   it("renders confirmation details without ISO timestamps", () => {
-    render(
-      <BookingConfirmationScreen
-        confirmation={{
-          businessName: "RK Barber",
-          serviceName: "Haircut",
-          staffName: "Sam",
-          startsAt: "2030-07-02T07:30:00.000Z",
-          timezone: "Asia/Amman"
-        }}
-        onDone={() => undefined}
-        onViewSchedule={() => undefined}
-      />
-    );
+    render(<BookingConfirmationScreen confirmation={confirmation} onDone={() => undefined} />);
 
     expect(screen.getByText("Appointment confirmed")).toBeTruthy();
     expect(screen.getByText("RK Barber")).toBeTruthy();
     expect(screen.getByText("Haircut")).toBeTruthy();
     expect(screen.queryByText(/2030-07-02T/)).toBeNull();
+  });
+
+  it("sends guests back to Explore instead of Schedule", () => {
+    const onDone = jest.fn();
+    render(<BookingConfirmationScreen confirmation={confirmation} onDone={onDone} />);
+
+    expect(screen.getByText("Back to Explore")).toBeTruthy();
+    expect(screen.queryByText("View Schedule")).toBeNull();
+    fireEvent.press(screen.getByText("Back to Explore"));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps View Schedule for account-backed confirmations", () => {
+    const onViewSchedule = jest.fn();
+    render(
+      <BookingConfirmationScreen
+        confirmation={confirmation}
+        onDone={() => undefined}
+        onViewSchedule={onViewSchedule}
+      />
+    );
+
+    expect(screen.getByText("View Schedule")).toBeTruthy();
+    fireEvent.press(screen.getByText("View Schedule"));
+    expect(onViewSchedule).toHaveBeenCalledTimes(1);
   });
 });
 

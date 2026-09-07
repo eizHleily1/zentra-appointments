@@ -3,9 +3,19 @@ import type {
   Client,
   ClientRepository,
   CreateClientInput,
+  FindClientIdentityInput,
   FindClientsOptions,
   UpdateClientInput
 } from "../src/clients/client.repository";
+
+/**
+ * Approximates PostgreSQL's `normalize_client_display_name` for the in-memory double only.
+ * The two engines case-fold some Unicode differently, so production never folds names in
+ * JavaScript; `PostgresClientRepository` is the authority and has its own Unicode test.
+ */
+function foldDisplayName(displayName: string): string {
+  return displayName.trim().toLowerCase();
+}
 
 export class InMemoryClientRepository implements ClientRepository {
   private readonly clients = new Map<string, Client>();
@@ -14,10 +24,17 @@ export class InMemoryClientRepository implements ClientRepository {
     const normalizedPhone = normalizePhoneNumber(input.phoneNumber);
 
     if (normalizedPhone) {
-      const duplicate = await this.findActiveClientByNormalizedPhoneForBusiness(input.businessId, normalizedPhone);
+      // Mirrors the two partial unique indexes: linked and unlinked identities are
+      // enforced separately so a guest record can coexist with a linked account.
+      const duplicate = this.matchActiveClientByNormalizedPhoneAndName({
+        businessId: input.businessId,
+        linkage: input.linkedUserId === null ? "unlinked" : "linked",
+        displayName: input.displayName,
+        normalizedPhone
+      });
 
       if (duplicate) {
-        const error = new Error("Duplicate client phone");
+        const error = new Error("Duplicate client phone and name");
         Object.assign(error, { code: "23505" });
         throw error;
       }
@@ -90,24 +107,8 @@ export class InMemoryClientRepository implements ClientRepository {
     return Array.from(this.clients.values()).filter((client) => client.linkedUserId === linkedUserId);
   }
 
-  async findActiveClientByNormalizedPhoneForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    excludeClientId?: string
-  ): Promise<Client | null> {
-    return (
-      Array.from(this.clients.values()).find((client) => {
-        if (client.businessId !== businessId || !client.active) {
-          return false;
-        }
-
-        if (excludeClientId && client.id === excludeClientId) {
-          return false;
-        }
-
-        return normalizePhoneNumber(client.phoneNumber) === normalizedPhone;
-      }) ?? null
-    );
+  async findActiveClientMatchingIdentity(input: FindClientIdentityInput): Promise<Client | null> {
+    return this.matchActiveClientByNormalizedPhoneAndName(input);
   }
 
   async updateClient(businessId: string, clientId: string, input: UpdateClientInput): Promise<Client | null> {
@@ -118,17 +119,20 @@ export class InMemoryClientRepository implements ClientRepository {
     }
 
     const nextPhoneNumber = input.phoneNumber === undefined ? client.phoneNumber : input.phoneNumber;
+    const nextDisplayName = input.displayName ?? client.displayName;
     const normalizedPhone = normalizePhoneNumber(nextPhoneNumber);
 
     if (normalizedPhone) {
-      const duplicate = await this.findActiveClientByNormalizedPhoneForBusiness(
+      const duplicate = this.matchActiveClientByNormalizedPhoneAndName({
         businessId,
-        normalizedPhone,
-        clientId
-      );
+        excludeClientId: clientId,
+        linkage: client.linkedUserId === null ? "unlinked" : "linked",
+        displayName: nextDisplayName,
+        normalizedPhone
+      });
 
       if (duplicate) {
-        const error = new Error("Duplicate client phone");
+        const error = new Error("Duplicate client phone and name");
         Object.assign(error, { code: "23505" });
         throw error;
       }
@@ -165,5 +169,32 @@ export class InMemoryClientRepository implements ClientRepository {
 
   getClients(): Client[] {
     return Array.from(this.clients.values());
+  }
+
+  removeClient(clientId: string): void {
+    this.clients.delete(clientId);
+  }
+
+  private matchActiveClientByNormalizedPhoneAndName(input: FindClientIdentityInput): Client | null {
+    return (
+      Array.from(this.clients.values()).find((client) => {
+        if (client.businessId !== input.businessId || !client.active) {
+          return false;
+        }
+
+        if (input.excludeClientId && client.id === input.excludeClientId) {
+          return false;
+        }
+
+        if ((client.linkedUserId === null) !== (input.linkage === "unlinked")) {
+          return false;
+        }
+
+        return (
+          normalizePhoneNumber(client.phoneNumber) === input.normalizedPhone &&
+          foldDisplayName(client.displayName) === foldDisplayName(input.displayName)
+        );
+      }) ?? null
+    );
   }
 }

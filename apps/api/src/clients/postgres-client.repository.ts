@@ -4,6 +4,7 @@ import type {
   Client,
   ClientRepository,
   CreateClientInput,
+  FindClientIdentityInput,
   FindClientsOptions,
   UpdateClientInput
 } from "./client.repository";
@@ -117,22 +118,26 @@ export class PostgresClientRepository implements ClientRepository {
     return result.rows.map(mapClient);
   }
 
-  async findActiveClientByNormalizedPhoneForBusiness(
-    businessId: string,
-    normalizedPhone: string,
-    excludeClientId?: string
-  ): Promise<Client | null> {
+  async findActiveClientMatchingIdentity(input: FindClientIdentityInput): Promise<Client | null> {
     const result = await this.databaseService.query<ClientRow>(
       `
         SELECT *
         FROM clients
         WHERE business_id = $1
           AND active = true
+          AND ($4::boolean = (linked_user_id IS NULL))
           AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
-          AND ($3::uuid IS NULL OR id <> $3)
+          AND normalize_client_display_name(display_name) = normalize_client_display_name($3)
+          AND ($5::uuid IS NULL OR id <> $5)
         LIMIT 1
       `,
-      [businessId, normalizedPhone, excludeClientId ?? null]
+      [
+        input.businessId,
+        input.normalizedPhone,
+        input.displayName,
+        input.linkage === "unlinked",
+        input.excludeClientId ?? null
+      ]
     );
 
     return result.rows[0] ? mapClient(result.rows[0]) : null;

@@ -1,5 +1,13 @@
 export type AppEnvironment = "development" | "test" | "production";
 
+/**
+ * Only the local logging provider exists today. Adding a real vendor means adding a
+ * value here and a sender implementation; production refuses to boot on "log".
+ */
+export const PHONE_VERIFICATION_PROVIDERS = ["log"] as const;
+
+export type PhoneVerificationProvider = (typeof PHONE_VERIFICATION_PROVIDERS)[number];
+
 export interface AppConfig {
   AUTH_LOGIN_RATE_LIMIT_MAX: number;
   AUTH_LOGIN_RATE_LIMIT_TTL_SECONDS: number;
@@ -8,10 +16,21 @@ export interface AppConfig {
   AUTH_REGISTER_RATE_LIMIT_MAX: number;
   AUTH_REGISTER_RATE_LIMIT_TTL_SECONDS: number;
   DATABASE_URL: string;
+  GUEST_BOOKING_RATE_LIMIT_MAX: number;
+  GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX: number;
+  GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS: number;
+  GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX: number;
+  GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS: number;
   JWT_ACCESS_TOKEN_EXPIRES_IN: string;
   JWT_ACCESS_TOKEN_SECRET: string;
   NODE_ENV: AppEnvironment;
   PASSWORD_MIN_LENGTH: number;
+  PHONE_VERIFICATION_LOG_CODES: boolean;
+  PHONE_VERIFICATION_PROVIDER: PhoneVerificationProvider;
   REFRESH_TOKEN_EXPIRES_IN: string;
   PORT: number;
 }
@@ -32,6 +51,21 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
   const authLoginRateLimitTtlSeconds = Number(config.AUTH_LOGIN_RATE_LIMIT_TTL_SECONDS ?? 60);
   const authRefreshRateLimitMax = Number(config.AUTH_REFRESH_RATE_LIMIT_MAX ?? 20);
   const authRefreshRateLimitTtlSeconds = Number(config.AUTH_REFRESH_RATE_LIMIT_TTL_SECONDS ?? 60);
+  const guestBookingRateLimitMax = Number(config.GUEST_BOOKING_RATE_LIMIT_MAX ?? 10);
+  const guestBookingRateLimitTtlSeconds = Number(config.GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS ?? 60);
+  const verificationRequestRateLimitMax = Number(config.GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX ?? 5);
+  const verificationRequestRateLimitTtlSeconds = Number(
+    config.GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS ?? 60
+  );
+  const verificationCheckRateLimitMax = Number(config.GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX ?? 10);
+  const verificationCheckRateLimitTtlSeconds = Number(
+    config.GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS ?? 60
+  );
+  const verificationCodeTtlSeconds = Number(config.GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS ?? 300);
+  const verificationMaxAttempts = Number(config.GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS ?? 5);
+  const verificationResendCooldownSeconds = Number(config.GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS ?? 60);
+  const phoneVerificationProvider = String(config.PHONE_VERIFICATION_PROVIDER ?? "log");
+  const phoneVerificationLogCodes = String(config.PHONE_VERIFICATION_LOG_CODES ?? "false") === "true";
 
   if (!allowedEnvironments.includes(nodeEnv as AppEnvironment)) {
     throw new Error("NODE_ENV must be development, test, or production");
@@ -75,6 +109,44 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
   assertPositiveInteger(authLoginRateLimitTtlSeconds, "AUTH_LOGIN_RATE_LIMIT_TTL_SECONDS");
   assertPositiveInteger(authRefreshRateLimitMax, "AUTH_REFRESH_RATE_LIMIT_MAX");
   assertPositiveInteger(authRefreshRateLimitTtlSeconds, "AUTH_REFRESH_RATE_LIMIT_TTL_SECONDS");
+  assertPositiveInteger(guestBookingRateLimitMax, "GUEST_BOOKING_RATE_LIMIT_MAX");
+  assertPositiveInteger(guestBookingRateLimitTtlSeconds, "GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS");
+  assertPositiveInteger(verificationRequestRateLimitMax, "GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX");
+  assertPositiveInteger(
+    verificationRequestRateLimitTtlSeconds,
+    "GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS"
+  );
+  assertPositiveInteger(verificationCheckRateLimitMax, "GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX");
+  assertPositiveInteger(
+    verificationCheckRateLimitTtlSeconds,
+    "GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS"
+  );
+  assertPositiveInteger(verificationCodeTtlSeconds, "GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS");
+  assertPositiveInteger(verificationMaxAttempts, "GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS");
+  // A zero cooldown disables resend throttling, which is only useful for local testing.
+  assertNonNegativeInteger(verificationResendCooldownSeconds, "GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS");
+
+  if (!PHONE_VERIFICATION_PROVIDERS.includes(phoneVerificationProvider as PhoneVerificationProvider)) {
+    throw new Error(`PHONE_VERIFICATION_PROVIDER must be one of ${PHONE_VERIFICATION_PROVIDERS.join(", ")}`);
+  }
+
+  if (nodeEnv === "production") {
+    if (phoneVerificationLogCodes) {
+      throw new Error("PHONE_VERIFICATION_LOG_CODES must be false in production");
+    }
+
+    if (verificationResendCooldownSeconds === 0) {
+      throw new Error("GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS must be greater than 0 in production");
+    }
+
+    // Fail closed: the log provider delivers nothing, so booting on it in production
+    // would hand out challenges that no guest can ever complete.
+    if (phoneVerificationProvider === "log") {
+      throw new Error(
+        "PHONE_VERIFICATION_PROVIDER=log cannot be used in production; configure a real SMS provider"
+      );
+    }
+  }
 
   return {
     AUTH_LOGIN_RATE_LIMIT_MAX: authLoginRateLimitMax,
@@ -84,10 +156,21 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
     AUTH_REGISTER_RATE_LIMIT_MAX: authRegisterRateLimitMax,
     AUTH_REGISTER_RATE_LIMIT_TTL_SECONDS: authRegisterRateLimitTtlSeconds,
     DATABASE_URL: databaseUrl,
+    GUEST_BOOKING_RATE_LIMIT_MAX: guestBookingRateLimitMax,
+    GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS: guestBookingRateLimitTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX: verificationCheckRateLimitMax,
+    GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS: verificationCheckRateLimitTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS: verificationCodeTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS: verificationMaxAttempts,
+    GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX: verificationRequestRateLimitMax,
+    GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS: verificationRequestRateLimitTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS: verificationResendCooldownSeconds,
     JWT_ACCESS_TOKEN_EXPIRES_IN: jwtAccessTokenExpiresIn,
     JWT_ACCESS_TOKEN_SECRET: jwtAccessTokenSecret,
     NODE_ENV: nodeEnv as AppEnvironment,
     PASSWORD_MIN_LENGTH: passwordMinLength,
+    PHONE_VERIFICATION_LOG_CODES: phoneVerificationLogCodes,
+    PHONE_VERIFICATION_PROVIDER: phoneVerificationProvider as PhoneVerificationProvider,
     REFRESH_TOKEN_EXPIRES_IN: refreshTokenExpiresIn,
     PORT: port
   };
@@ -96,6 +179,12 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
 function assertPositiveInteger(value: number, name: string): void {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer`);
+  }
+}
+
+function assertNonNegativeInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
   }
 }
 

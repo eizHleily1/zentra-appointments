@@ -25,7 +25,10 @@
     "db:init:clients": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-10-clients.sql",
     "db:init:appointment-clients": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-11-appointment-clients.sql",
     "db:init:location": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-12-business-location.sql",
-    "db:init:booking-interval": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-13-booking-interval.sql"
+    "db:init:booking-interval": "docker compose exec -T postgres psql -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-13-booking-interval.sql",
+    "db:init:client-identity": "docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-14-client-phone-name-identity.sql",
+    "db:init:booking-verification": "docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-15-booking-phone-verification.sql",
+    "db:init:client-name-identity": "docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U appointment_saas -d appointment_saas_dev < apps/api/db/iteration-16-client-name-identity.sql"
   },
   "devDependencies": {
     "prettier": "^3.4.2"

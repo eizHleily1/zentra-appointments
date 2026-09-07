@@ -4,11 +4,16 @@ import {
   APPOINTMENT_REPOSITORY,
   type AppointmentRepository
 } from "../appointments/appointment.repository";
+import type { GuestClientIdentity } from "../appointments/guest-booking.repository";
 import { BUSINESS_REPOSITORY, type BusinessRepository } from "../businesses/business.repository";
 import type { ClientDetailsResponse, ClientSummary } from "./client-responses";
-import { deriveClientDisplayNameFromEmail } from "./legacy-client-backfill";
 import { normalizeOptionalEmail, normalizePhoneNumber } from "./client-phone";
-import { CLIENT_REPOSITORY, type Client, type ClientRepository } from "./client.repository";
+import {
+  CLIENT_REPOSITORY,
+  type Client,
+  type ClientLinkage,
+  type ClientRepository
+} from "./client.repository";
 
 interface CreateClientCommand {
   businessId: string;
@@ -43,7 +48,8 @@ export class ClientsService {
     const phoneNumber = normalizeOptionalPhoneForStorage(command.phoneNumber);
     const email = normalizeOptionalEmail(command.email);
 
-    await this.assertNoDuplicateActivePhone(command.businessId, phoneNumber);
+    // Owner-created clients are always unlinked, so they only conflict with other guests.
+    await this.assertNoDuplicateActivePhoneAndName(command.businessId, displayName, phoneNumber, "unlinked");
 
     try {
       return await this.clientRepository.createClient({
@@ -56,7 +62,7 @@ export class ClientsService {
       });
     } catch (error) {
       if (isPostgresUniqueViolation(error)) {
-        throw new ConflictException("A client with this phone number already exists");
+        throw new ConflictException("A client with this name and phone number already exists");
       }
 
       if (isPostgresForeignKeyViolation(error)) {
@@ -129,9 +135,13 @@ export class ClientsService {
       command.phoneNumber === undefined ? undefined : normalizeOptionalPhoneForStorage(command.phoneNumber);
     const email = command.email === undefined ? undefined : normalizeOptionalEmail(command.email);
 
-    if (phoneNumber !== undefined) {
-      await this.assertNoDuplicateActivePhone(command.businessId, phoneNumber, command.clientId);
-    }
+    await this.assertNoDuplicateActivePhoneAndName(
+      command.businessId,
+      displayName ?? existingClient.displayName,
+      phoneNumber === undefined ? existingClient.phoneNumber : phoneNumber,
+      existingClient.linkedUserId === null ? "unlinked" : "linked",
+      command.clientId
+    );
 
     try {
       const client = await this.clientRepository.updateClient(command.businessId, command.clientId, {
@@ -147,7 +157,7 @@ export class ClientsService {
       return client;
     } catch (error) {
       if (isPostgresUniqueViolation(error)) {
-        throw new ConflictException("A client with this phone number already exists");
+        throw new ConflictException("A client with this name and phone number already exists");
       }
 
       throw error;
@@ -180,44 +190,40 @@ export class ClientsService {
     return client;
   }
 
-  async resolveLinkedClientForUser(input: {
+  normalizeGuestClient(input: {
     businessId: string;
-    userEmail: string;
-    userId: string;
-  }): Promise<Client> {
-    const existingClient = await this.clientRepository.findClientByLinkedUserIdForBusiness(
-      input.businessId,
-      input.userId
-    );
+    displayName: string;
+    phoneNumber: string;
+  }): GuestClientIdentity {
+    const displayName = normalizeRequiredText(input.displayName, "Enter your name");
+    const phoneNumber = requirePhoneNumberForStorage(input.phoneNumber);
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
 
-    if (existingClient) {
-      if (!existingClient.active) {
-        throw new BadRequestException("Client is not available");
-      }
-
-      return existingClient;
+    if (!normalizedPhone) {
+      throw new BadRequestException("Enter a valid phone number");
     }
 
-    const displayName = deriveClientDisplayNameFromEmail(input.userEmail);
-    const email = normalizeOptionalEmail(input.userEmail);
-
-    return this.clientRepository.createClient({
+    return {
       businessId: input.businessId,
       displayName,
-      email,
-      id: randomUUID(),
-      linkedUserId: input.userId,
-      phoneNumber: null
-    });
+      normalizedPhone,
+      phoneNumber
+    };
   }
 
   findClientsLinkedToUser(userId: string): Promise<Client[]> {
     return this.clientRepository.findClientsByLinkedUserId(userId);
   }
 
-  private async assertNoDuplicateActivePhone(
+  /**
+   * Scoped to one linkage class so an owner can edit a linked client that shares a phone
+   * and name with its unlinked guest twin, which the database deliberately permits.
+   */
+  private async assertNoDuplicateActivePhoneAndName(
     businessId: string,
+    displayName: string,
     phoneNumber: string | null,
+    linkage: ClientLinkage,
     excludeClientId?: string
   ): Promise<void> {
     if (!phoneNumber) {
@@ -230,14 +236,16 @@ export class ClientsService {
       return;
     }
 
-    const existingClient = await this.clientRepository.findActiveClientByNormalizedPhoneForBusiness(
+    const existingClient = await this.clientRepository.findActiveClientMatchingIdentity({
       businessId,
-      normalizedPhone,
-      excludeClientId
-    );
+      displayName,
+      excludeClientId,
+      linkage,
+      normalizedPhone
+    });
 
     if (existingClient) {
-      throw new ConflictException("A client with this phone number already exists");
+      throw new ConflictException("A client with this name and phone number already exists");
     }
   }
 
@@ -268,6 +276,20 @@ function normalizeOptionalPhoneForStorage(phoneNumber: string | null | undefined
   const trimmed = phoneNumber.trim();
 
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function requirePhoneNumberForStorage(phoneNumber: string): string {
+  const trimmed = phoneNumber.trim();
+
+  if (trimmed.length === 0) {
+    throw new BadRequestException("Phone number is required");
+  }
+
+  if (!normalizePhoneNumber(trimmed)) {
+    throw new BadRequestException("Enter a valid phone number");
+  }
+
+  return trimmed;
 }
 
 function isPostgresUniqueViolation(error: unknown): boolean {

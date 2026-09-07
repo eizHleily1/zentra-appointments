@@ -3,7 +3,9 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { APPOINTMENT_REPOSITORY } from "../src/appointments/appointment.repository";
+import { GUEST_BOOKING_REPOSITORY } from "../src/appointments/guest-booking.repository";
 import { PostgresAppointmentRepository } from "../src/appointments/postgres-appointment.repository";
+import { PostgresGuestBookingRepository } from "../src/appointments/postgres-guest-booking.repository";
 import { zonedLocalToUtc } from "../src/appointments/scheduling";
 import { AUTH_REPOSITORY } from "../src/auth/auth.repository";
 import { PostgresAuthRepository } from "../src/auth/postgres-auth.repository";
@@ -22,6 +24,8 @@ import { InMemoryAuthRepository } from "./in-memory-auth.repository";
 import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 import { InMemoryClientRepository } from "./in-memory-client.repository";
+import { InMemoryBookingVerificationRepository } from "./in-memory-booking-verification.repository";
+import { InMemoryGuestBookingRepository } from "./in-memory-guest-booking.repository";
 import { InMemoryServiceRepository } from "./in-memory-service.repository";
 import { InMemoryStaffRepository } from "./in-memory-staff.repository";
 
@@ -33,13 +37,24 @@ describe("ClientsController", () => {
 
   beforeEach(async () => {
     clientRepository = new InMemoryClientRepository();
+    const appointmentRepository = new InMemoryAppointmentRepository();
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     })
       .overrideProvider(APPOINTMENT_REPOSITORY)
-      .useValue(new InMemoryAppointmentRepository())
+      .useValue(appointmentRepository)
       .overrideProvider(PostgresAppointmentRepository)
+      .useValue({})
+      .overrideProvider(GUEST_BOOKING_REPOSITORY)
+      .useValue(
+        new InMemoryGuestBookingRepository(
+          clientRepository,
+          appointmentRepository,
+          new InMemoryBookingVerificationRepository()
+        )
+      )
+      .overrideProvider(PostgresGuestBookingRepository)
       .useValue({})
       .overrideProvider(AUTH_REPOSITORY)
       .useValue(new InMemoryAuthRepository())
@@ -179,7 +194,7 @@ describe("ClientsController", () => {
     });
   });
 
-  it("rejects duplicate active phone numbers within the same business", async () => {
+  it("rejects duplicate active name and phone numbers within the same business", async () => {
     const owner = await registerAndGetIdentity(app, "owner@example.com");
     const business = await createBusiness(app, owner.accessToken, "Owner Business");
 
@@ -191,8 +206,30 @@ describe("ClientsController", () => {
     await request(app.getHttpServer())
       .post(`/businesses/${business.id}/clients`)
       .set("authorization", `Bearer ${owner.accessToken}`)
-      .send({ displayName: "Maria L.", phoneNumber: "(555) 123-4567" })
+      .send({ displayName: "Maria Lopez", phoneNumber: "(555) 123-4567" })
       .expect(409);
+  });
+
+  it("allows the same phone number with a different display name", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const business = await createBusiness(app, owner.accessToken, "Owner Business");
+
+    await createClient(app, owner.accessToken, business.id, {
+      displayName: "Maria Lopez",
+      phoneNumber: "555-123-4567"
+    });
+
+    const child = await request(app.getHttpServer())
+      .post(`/businesses/${business.id}/clients`)
+      .set("authorization", `Bearer ${owner.accessToken}`)
+      .send({ displayName: "Maria L.", phoneNumber: "(555) 123-4567" })
+      .expect(201);
+
+    expect(child.body).toMatchObject({
+      displayName: "Maria L.",
+      linkedUserId: null,
+      phoneNumber: "(555) 123-4567"
+    });
   });
 
   it("allows duplicate names when no phone number is provided", async () => {

@@ -53,7 +53,7 @@ Implemented authentication capabilities:
 - Hashed refresh token storage.
 - Account status support: `ACTIVE` and `DISABLED`.
 - Login and refresh rejection for `DISABLED` accounts.
-- Basic in-process rate limiting for registration, login, and refresh endpoints.
+- Basic in-process rate limiting for registration, login, refresh, and public guest booking endpoints.
 - Authentication environment configuration.
 - Authentication tests.
 
@@ -611,6 +611,57 @@ pnpm db:init:booking-interval
 
 This adds `booking_interval_minutes` to `tenants` with default `15` and allowed values `5, 10, 15, 20, 30, 60`.
 
+Iteration 14 client identity is initialized explicitly with:
+
+```text
+apps/api/db/iteration-14-client-phone-name-identity.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:client-identity
+```
+
+This replaces the unique active phone-per-business index with a unique index on active clients for `(business_id, normalized phone, normalized display name)` so the same phone number can represent different people.
+
+Iteration 15 booking phone verification is initialized explicitly with:
+
+```text
+apps/api/db/iteration-15-booking-phone-verification.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:booking-verification
+```
+
+This adds the `booking_phone_verifications` challenge table for public guest booking and splits the client identity index into separate unique indexes for linked and unlinked clients, so an anonymous booking can never reuse a client that belongs to a registered user.
+
+Iteration 16 client name identity is initialized explicitly with:
+
+```text
+apps/api/db/iteration-16-client-name-identity.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:client-name-identity
+```
+
+This defines `normalize_client_display_name` and rebuilds the client identity indexes to use it, so matching and uniqueness always fold names in PostgreSQL rather than in JavaScript. Display names are still stored as entered.
+
+### Booking phone verification providers
+
+No SMS vendor is integrated yet. `PHONE_VERIFICATION_PROVIDER` selects the sender, and `log` is the only implementation:
+
+- `log` writes to the application log and delivers nothing. Startup **fails** when `NODE_ENV=production` uses it, so production can never issue a challenge that no guest can complete.
+- Set `PHONE_VERIFICATION_LOG_CODES=true` in your own local `.env` to print the plaintext code. This is an explicit opt-in rather than a "not production" default, and it ships as `false` in `.env.example`, so staging, preview, and CI hosts do not log usable codes. Startup also fails if it is enabled in production.
+
+Tests read codes from `FakePhoneVerificationSender` and never depend on application logs.
+
 ### Fresh local database setup
 
 Start PostgreSQL, then apply migrations in order:
@@ -630,6 +681,9 @@ pnpm db:init:clients
 pnpm db:init:appointment-clients
 pnpm db:init:location
 pnpm db:init:booking-interval
+pnpm db:init:client-identity
+pnpm db:init:booking-verification
+pnpm db:init:client-name-identity
 ```
 
 Existing databases only need the migrations they have not applied yet. SQL files use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` where possible so re-running a migration is usually safe.

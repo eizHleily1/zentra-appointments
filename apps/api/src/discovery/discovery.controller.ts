@@ -1,18 +1,24 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
-import type { AuthenticatedUser } from "../auth/authenticated-user";
-import { CurrentUser } from "../auth/current-user.decorator";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AppointmentsService } from "../appointments/appointments.service";
+import { BookingVerificationService } from "../booking-verification/booking-verification.service";
 import { GetAvailableSlotsQueryDto } from "../appointments/dto/get-available-slots-query.dto";
+import {
+  BookingRateLimitGuard,
+  BookingVerificationCheckRateLimitGuard,
+  BookingVerificationRequestRateLimitGuard
+} from "./booking-rate-limit.guard";
 import { CreateConsumerAppointmentDto } from "./dto/create-consumer-appointment.dto";
 import { ListDiscoveryBusinessesQueryDto } from "./dto/list-discovery-businesses-query.dto";
+import { RequestBookingVerificationDto } from "./dto/request-booking-verification.dto";
+import { VerifyBookingVerificationDto } from "./dto/verify-booking-verification.dto";
 import { DiscoveryService } from "./discovery.service";
 
 @Controller("discovery")
 export class DiscoveryController {
   constructor(
     private readonly discoveryService: DiscoveryService,
-    private readonly appointmentsService: AppointmentsService
+    private readonly appointmentsService: AppointmentsService,
+    private readonly bookingVerificationService: BookingVerificationService
   ) {}
 
   @Get("businesses")
@@ -26,7 +32,6 @@ export class DiscoveryController {
   }
 
   @Get("businesses/:businessId/available-slots")
-  @UseGuards(JwtAuthGuard)
   getAvailableSlots(
     @Param("businessId") businessId: string,
     @Query() query: GetAvailableSlotsQueryDto
@@ -39,20 +44,42 @@ export class DiscoveryController {
     });
   }
 
-  @Post("businesses/:businessId/appointments")
-  @UseGuards(JwtAuthGuard)
-  createAppointment(
-    @CurrentUser() user: AuthenticatedUser,
+  @Post("businesses/:businessId/booking-verifications")
+  @UseGuards(BookingVerificationRequestRateLimitGuard)
+  requestBookingVerification(
     @Param("businessId") businessId: string,
-    @Body() body: CreateConsumerAppointmentDto
+    @Body() body: RequestBookingVerificationDto
   ) {
+    return this.bookingVerificationService.requestVerification({
+      businessId,
+      phoneNumber: body.phoneNumber
+    });
+  }
+
+  @Post("businesses/:businessId/booking-verifications/verify")
+  @UseGuards(BookingVerificationCheckRateLimitGuard)
+  verifyBookingVerification(
+    @Param("businessId") businessId: string,
+    @Body() body: VerifyBookingVerificationDto
+  ) {
+    return this.bookingVerificationService.verifyCode({
+      businessId,
+      code: body.code,
+      verificationId: body.verificationId
+    });
+  }
+
+  @Post("businesses/:businessId/appointments")
+  @UseGuards(BookingRateLimitGuard)
+  createAppointment(@Param("businessId") businessId: string, @Body() body: CreateConsumerAppointmentDto) {
     return this.appointmentsService.createConsumerAppointment({
       businessId,
-      requesterEmail: user.email,
-      requesterUserId: user.id,
+      displayName: body.displayName,
+      phoneNumber: body.phoneNumber,
       serviceId: body.serviceId,
       staffMemberId: body.staffMemberId,
-      startTime: body.startTime
+      startTime: body.startTime,
+      verificationId: body.verificationId
     });
   }
 }
