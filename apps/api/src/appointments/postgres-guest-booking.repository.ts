@@ -4,10 +4,11 @@ import type { Client } from "../clients/client.repository";
 import { DatabaseService, type DatabaseTransactionClient } from "../database/database.service";
 import type { AppointmentStatus } from "./appointment-status";
 import type { Appointment } from "./appointment.repository";
-import type {
-  GuestAppointmentWrite,
-  GuestBookingRepository,
-  GuestClientIdentity
+import {
+  GuestBookingVerificationError,
+  type GuestAppointmentWrite,
+  type GuestBookingRepository,
+  type GuestClientIdentity
 } from "./guest-booking.repository";
 
 interface ClientRow {
@@ -48,8 +49,15 @@ export class PostgresGuestBookingRepository implements GuestBookingRepository {
   createGuestBooking(input: {
     appointment: GuestAppointmentWrite;
     guest: GuestClientIdentity;
+    verificationId: string;
   }): Promise<{ appointment: Appointment; client: Client }> {
     return this.databaseService.transaction(async (tx) => {
+      await consumeVerificationInTransaction(tx, {
+        businessId: input.guest.businessId,
+        normalizedPhone: input.guest.normalizedPhone,
+        verificationId: input.verificationId
+      });
+
       const client = await resolveGuestClientInTransaction(tx, input.guest);
       const appointment = await insertAppointment(tx, {
         ...input.appointment,
@@ -60,6 +68,37 @@ export class PostgresGuestBookingRepository implements GuestBookingRepository {
 
       return { appointment, client };
     });
+  }
+}
+
+/**
+ * Marks the verified challenge as used. The conditional UPDATE takes a row lock, so a
+ * second concurrent booking blocks here and then matches zero rows once the winner
+ * commits. Because the update lives in the booking transaction, a later failure such
+ * as a slot conflict rolls `consumed_at` back and the guest can retry the same code.
+ */
+async function consumeVerificationInTransaction(
+  tx: DatabaseTransactionClient,
+  input: { businessId: string; normalizedPhone: string; verificationId: string }
+): Promise<void> {
+  const result = await tx.query(
+    `
+      UPDATE booking_phone_verifications
+      SET consumed_at = now(),
+          updated_at = now()
+      WHERE id = $1
+        AND business_id = $2
+        AND normalized_phone = $3
+        AND verified_at IS NOT NULL
+        AND consumed_at IS NULL
+        AND expires_at > now()
+      RETURNING id
+    `,
+    [input.verificationId, input.businessId, input.normalizedPhone]
+  );
+
+  if (result.rows.length === 0) {
+    throw new GuestBookingVerificationError();
   }
 }
 
@@ -111,6 +150,7 @@ async function findGuestClient(tx: DatabaseTransactionClient, guest: GuestClient
       FROM clients
       WHERE business_id = $1
         AND active = true
+        AND linked_user_id IS NULL
         AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
         AND lower(btrim(display_name)) = $3
       LIMIT 1

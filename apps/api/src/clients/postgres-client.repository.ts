@@ -140,6 +140,28 @@ export class PostgresClientRepository implements ClientRepository {
     return result.rows[0] ? mapClient(result.rows[0]) : null;
   }
 
+  async findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
+    businessId: string,
+    normalizedPhone: string,
+    normalizedDisplayName: string
+  ): Promise<Client | null> {
+    const result = await this.databaseService.query<ClientRow>(
+      `
+        SELECT *
+        FROM clients
+        WHERE business_id = $1
+          AND active = true
+          AND linked_user_id IS NULL
+          AND regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = $2
+          AND lower(btrim(display_name)) = $3
+        LIMIT 1
+      `,
+      [businessId, normalizedPhone, normalizedDisplayName]
+    );
+
+    return result.rows[0] ? mapClient(result.rows[0]) : null;
+  }
+
   async updateClient(businessId: string, clientId: string, input: UpdateClientInput): Promise<Client | null> {
     const result = await this.databaseService.query<ClientRow>(
       `

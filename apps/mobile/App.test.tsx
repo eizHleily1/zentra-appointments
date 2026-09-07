@@ -5,6 +5,7 @@ import App, {
   BusinessCard,
   BusinessProfileScreen,
   buildBookAppointmentPayload,
+  buildBookingVerificationRequestPayload,
   buildConsumerBookAppointmentPayload,
   CategoryBusinessListScreen,
   formatAppointmentStatus,
@@ -118,6 +119,18 @@ function mockConsumerApi(input: RequestInfo | URL, init?: RequestInit) {
     return jsonResponse([{ endTime: "2030-07-02T07:30:00.000Z", label: "10:00", startTime: "2030-07-02T07:00:00.000Z" }]);
   }
 
+  if (method === "POST" && pathname.endsWith("/booking-verifications")) {
+    return jsonResponse({
+      attemptsRemaining: 5,
+      expiresAt: "2030-07-02T07:05:00.000Z",
+      verificationId: "verification-1"
+    });
+  }
+
+  if (method === "POST" && pathname.endsWith("/verify")) {
+    return jsonResponse({ verified: true });
+  }
+
   if (method === "POST" && pathname.includes("/discovery/businesses/") && pathname.endsWith("/appointments")) {
     return jsonResponse({ startsAt: "2030-07-02T07:00:00.000Z" });
   }
@@ -161,7 +174,7 @@ async function openBookingScreen() {
   });
 }
 
-async function completeGuestBooking(name = "Maria Lopez", phone = "555-123-4567") {
+async function enterGuestDetails(name = "Maria Lopez", phone = "555-123-4567") {
   await openBookingScreen();
 
   fireEvent.press(screen.getByText("Haircut"));
@@ -173,6 +186,26 @@ async function completeGuestBooking(name = "Maria Lopez", phone = "555-123-4567"
   fireEvent.press(screen.getByText("10:00"));
   fireEvent.changeText(screen.getByPlaceholderText("Your name"), name);
   fireEvent.changeText(screen.getByPlaceholderText("Phone number"), phone);
+}
+
+async function verifyGuestPhone(code = "123456") {
+  fireEvent.press(screen.getByText("Send code"));
+
+  await waitFor(() => {
+    expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+  });
+
+  fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), code);
+  fireEvent.press(screen.getByText("Verify code"));
+
+  await waitFor(() => {
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+  });
+}
+
+async function completeGuestBooking(name = "Maria Lopez", phone = "555-123-4567") {
+  await enterGuestDetails(name, phone);
+  await verifyGuestPhone();
   fireEvent.press(screen.getByText("Confirm booking"));
 }
 
@@ -294,6 +327,14 @@ describe("App consumer Home tab from Explore stack", () => {
       expect(screen.getByText("Appointment confirmed")).toBeTruthy();
     });
 
+    const verificationCall = findFetchCall("/discovery/businesses/biz-1/booking-verifications");
+    expect(JSON.parse(String(verificationCall?.[1]?.body))).toEqual({ phoneNumber: "555-123-4567" });
+
+    const verifyCall = findFetchCall(
+      "/discovery/businesses/biz-1/booking-verifications/verification-1/verify"
+    );
+    expect(JSON.parse(String(verifyCall?.[1]?.body))).toEqual({ code: "123456" });
+
     const appointmentCall = findFetchCall("/discovery/businesses/biz-1/appointments");
     expect(appointmentCall).toBeDefined();
     expect(JSON.parse(String(appointmentCall?.[1]?.body))).toEqual({
@@ -301,8 +342,96 @@ describe("App consumer Home tab from Explore stack", () => {
       phoneNumber: "555-123-4567",
       serviceId: "svc-1",
       staffMemberId: "staff-1",
-      startTime: "2030-07-02T07:00:00.000Z"
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "verification-1"
     });
+  });
+
+  it("requires phone verification before the confirm button appears", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+
+    expect(screen.getByText("Verify your phone number to confirm this booking.")).toBeTruthy();
+    expect(screen.queryByText("Confirm booking")).toBeNull();
+    expect(findFetchCall("/discovery/businesses/biz-1/appointments")).toBeUndefined();
+  });
+
+  it("shows the server message when a code is rejected and keeps the guest on the code step", async () => {
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "POST" && fetchPathname(input).endsWith("/verify")) {
+        return Promise.resolve(jsonResponse({ message: "Verification code is invalid or expired" }, 400));
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    fireEvent.press(screen.getByText("Send code"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("6-digit code")).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText("6-digit code"), "000000");
+    fireEvent.press(screen.getByText("Verify code"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Verification code is invalid or expired")).toBeTruthy();
+    });
+    expect(screen.getByText("Verify code")).toBeTruthy();
+    expect(screen.queryByText("Confirm booking")).toBeNull();
+  });
+
+  it("keeps the phone verified when the slot became unavailable", async () => {
+    let bookingAttempts = 0;
+    globalThis.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      const pathname = fetchPathname(input);
+
+      if (method === "POST" && pathname.includes("/discovery/businesses/") && pathname.endsWith("/appointments")) {
+        bookingAttempts += 1;
+
+        if (bookingAttempts === 1) {
+          return Promise.resolve(
+            jsonResponse({ message: "This appointment slot is no longer available" }, 409)
+          );
+        }
+      }
+
+      return mockConsumerApi(input, init);
+    }) as unknown as typeof fetch;
+
+    render(<App />);
+    await openDowntownBarberProfile();
+    await completeGuestBooking();
+
+    await waitFor(() => {
+      expect(screen.getByText("This appointment slot is no longer available")).toBeTruthy();
+    });
+    expect(screen.getByText("Phone verified")).toBeTruthy();
+
+    fireEvent.press(screen.getByText("Confirm booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Appointment confirmed")).toBeTruthy();
+    });
+  });
+
+  it("clears the verification when the phone number is edited", async () => {
+    render(<App />);
+    await openDowntownBarberProfile();
+    await enterGuestDetails();
+    await verifyGuestPhone();
+
+    fireEvent.changeText(screen.getByPlaceholderText("Phone number"), "555-000-1111");
+
+    expect(screen.queryByText("Phone verified")).toBeNull();
+    expect(screen.getByText("Send code")).toBeTruthy();
   });
 
   it("lets a signed-in consumer book without using JWT identity", async () => {
@@ -322,7 +451,8 @@ describe("App consumer Home tab from Explore stack", () => {
       phoneNumber: "555-000-1111",
       serviceId: "svc-1",
       staffMemberId: "staff-1",
-      startTime: "2030-07-02T07:00:00.000Z"
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "verification-1"
     });
   });
 
@@ -554,7 +684,8 @@ describe("buildConsumerBookAppointmentPayload", () => {
       phoneNumber: " 555-123-4567 ",
       serviceId: "00000000-0000-4000-8000-000000000002",
       staffMemberId: "00000000-0000-4000-8000-000000000003",
-      startTime: "2030-07-02T07:00:00.000Z"
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "00000000-0000-4000-8000-000000000004"
     });
 
     expect(payload).toEqual({
@@ -562,9 +693,18 @@ describe("buildConsumerBookAppointmentPayload", () => {
       phoneNumber: "555-123-4567",
       serviceId: "00000000-0000-4000-8000-000000000002",
       staffMemberId: "00000000-0000-4000-8000-000000000003",
-      startTime: "2030-07-02T07:00:00.000Z"
+      startTime: "2030-07-02T07:00:00.000Z",
+      verificationId: "00000000-0000-4000-8000-000000000004"
     });
     expect(payload).not.toHaveProperty("clientId");
+  });
+});
+
+describe("buildBookingVerificationRequestPayload", () => {
+  it("trims the phone number and sends nothing else", () => {
+    expect(buildBookingVerificationRequestPayload({ phoneNumber: " 555-123-4567 " })).toEqual({
+      phoneNumber: "555-123-4567"
+    });
   });
 });
 

@@ -19,4 +19,7 @@ export class CreateConsumerAppointmentDto {
   @MinLength(1, { message: "Enter a phone number" })
   @MaxLength(40)
   phoneNumber!: string;
+
+  @IsUUID(undefined, { message: "Verify your phone number before booking" })
+  verificationId!: string;
 }

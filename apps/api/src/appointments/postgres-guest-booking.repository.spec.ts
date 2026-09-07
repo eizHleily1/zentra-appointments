@@ -11,7 +11,7 @@ import { PostgresGuestBookingRepository } from "./postgres-guest-booking.reposit
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgresql://appointment_saas:appointment_saas@localhost:5433/appointment_saas_dev";
 
-const schemaFiles = ["iteration-14-client-phone-name-identity.sql"];
+const schemaFiles = ["iteration-14-client-phone-name-identity.sql", "iteration-15-booking-phone-verification.sql"];
 
 describe("PostgresGuestBookingRepository", () => {
   it("runs guest client and appointment writes in one transaction that rolls back on failure", async () => {
@@ -23,6 +23,10 @@ describe("PostgresGuestBookingRepository", () => {
         queries.push(sql);
         if (sql.includes("INSERT INTO appointments")) {
           throw { code: "23P01" };
+        }
+
+        if (sql.includes("UPDATE booking_phone_verifications")) {
+          return { rows: [{ id: "verification-1" }] };
         }
 
         if (sql.includes("INSERT INTO clients")) {
@@ -65,16 +69,42 @@ describe("PostgresGuestBookingRepository", () => {
 
     expect(began).toBe(true);
     expect(rolledBack).toBe(true);
+    expect(queries[0]).toContain("UPDATE booking_phone_verifications");
     expect(queries.some((sql) => sql.includes("INSERT INTO clients") && sql.includes("ON CONFLICT DO NOTHING"))).toBe(
       true
     );
     expect(queries.some((sql) => sql.includes("INSERT INTO appointments"))).toBe(true);
   });
 
+  it("refuses to write anything when the verification cannot be consumed", async () => {
+    const queries: string[] = [];
+    const tx = {
+      query: jest.fn(async (sql: string) => {
+        queries.push(sql);
+        return { rows: [] };
+      })
+    };
+    const databaseService = {
+      transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)
+    } as unknown as DatabaseService;
+    const repository = new PostgresGuestBookingRepository(databaseService);
+
+    await expect(repository.createGuestBooking(guestBookingInput("appointment-1", "10:00", "10:30"))).rejects.toThrow(
+      "Verify your phone number before booking"
+    );
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("UPDATE booking_phone_verifications");
+  });
+
   it("looks up the winning guest client when insert hits a unique conflict without aborting the transaction", async () => {
     let clientLookups = 0;
     const tx = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes("UPDATE booking_phone_verifications")) {
+          return { rows: [{ id: "verification-1" }] };
+        }
+
         if (sql.includes("INSERT INTO clients")) {
           return { rows: [] };
         }
@@ -210,14 +240,16 @@ describe("PostgresGuestBookingRepository", () => {
           guestBookingInput(randomUUID(), "10:00", "10:30", {
             businessId: setup.businessId,
             serviceId: setup.serviceId,
-            staffMemberId: setup.staffMemberId
+            staffMemberId: setup.staffMemberId,
+            verificationId: await seedVerifiedChallenge(setup.businessId)
           })
         ),
         repository.createGuestBooking(
           guestBookingInput(randomUUID(), "10:30", "11:00", {
             businessId: setup.businessId,
             serviceId: setup.serviceId,
-            staffMemberId: setup.staffMemberId
+            staffMemberId: setup.staffMemberId,
+            verificationId: await seedVerifiedChallenge(setup.businessId)
           })
         )
       ]);
@@ -244,6 +276,121 @@ describe("PostgresGuestBookingRepository", () => {
       expect(appointments.rows).toHaveLength(2);
       expect(appointments.rows.every((row) => row.client_id === clients.rows[0].id)).toBe(true);
     });
+
+    it("lets only one of two concurrent bookings consume the same verified challenge", async () => {
+      const setup = await seedBookableBusiness();
+      const verificationId = await seedVerifiedChallenge(setup.businessId);
+
+      const results = await Promise.allSettled([
+        repository.createGuestBooking(
+          guestBookingInput(randomUUID(), "10:00", "10:30", {
+            businessId: setup.businessId,
+            serviceId: setup.serviceId,
+            staffMemberId: setup.staffMemberId,
+            verificationId
+          })
+        ),
+        repository.createGuestBooking(
+          guestBookingInput(randomUUID(), "11:00", "11:30", {
+            businessId: setup.businessId,
+            serviceId: setup.serviceId,
+            staffMemberId: setup.staffMemberId,
+            verificationId
+          })
+        )
+      ]);
+
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(
+        results.filter(
+          (result) =>
+            result.status === "rejected" &&
+            String(result.reason?.message).includes("Verify your phone number before booking")
+        )
+      ).toHaveLength(1);
+
+      const appointments = await databaseService.query<{ id: string }>(
+        "SELECT id FROM appointments WHERE business_id = $1",
+        [setup.businessId]
+      );
+      const verifications = await databaseService.query<{ consumed_at: Date | null }>(
+        "SELECT consumed_at FROM booking_phone_verifications WHERE id = $1",
+        [verificationId]
+      );
+
+      expect(appointments.rows).toHaveLength(1);
+      expect(verifications.rows[0].consumed_at).not.toBeNull();
+    });
+
+    it("rejects a challenge that was verified for a different business", async () => {
+      const setup = await seedBookableBusiness();
+      const otherBusiness = await seedBookableBusiness();
+      const verificationId = await seedVerifiedChallenge(otherBusiness.businessId);
+
+      await expect(
+        repository.createGuestBooking(
+          guestBookingInput(randomUUID(), "10:00", "10:30", {
+            businessId: setup.businessId,
+            serviceId: setup.serviceId,
+            staffMemberId: setup.staffMemberId,
+            verificationId
+          })
+        )
+      ).rejects.toThrow("Verify your phone number before booking");
+
+      const clients = await databaseService.query<{ id: string }>(
+        "SELECT id FROM clients WHERE business_id = $1",
+        [setup.businessId]
+      );
+
+      expect(clients.rows).toHaveLength(0);
+    });
+
+    it("creates a separate unlinked guest client instead of reusing a linked one", async () => {
+      const setup = await seedBookableBusiness();
+      const linkedClientId = randomUUID();
+      await databaseService.query(
+        `
+          INSERT INTO clients (id, business_id, display_name, phone_number, email, linked_user_id, active)
+          VALUES ($1, $2, 'Maria Lopez', '555-123-4567', NULL, $3, true)
+        `,
+        [linkedClientId, setup.businessId, setup.userId]
+      );
+
+      const booked = await repository.createGuestBooking(
+        guestBookingInput(randomUUID(), "10:00", "10:30", {
+          businessId: setup.businessId,
+          serviceId: setup.serviceId,
+          staffMemberId: setup.staffMemberId,
+          verificationId: await seedVerifiedChallenge(setup.businessId)
+        })
+      );
+
+      expect(booked.client.id).not.toBe(linkedClientId);
+      expect(booked.client.linkedUserId).toBeNull();
+    });
+
+    async function seedVerifiedChallenge(businessId: string, normalizedPhone = "5551234567"): Promise<string> {
+      const verificationId = randomUUID();
+
+      await databaseService.query(
+        `
+          INSERT INTO booking_phone_verifications (
+            id,
+            business_id,
+            normalized_phone,
+            code_hash,
+            expires_at,
+            attempts_remaining,
+            verified_at
+          )
+          VALUES ($1, $2, $3, 'hashed-code', now() + interval '5 minutes', 5, now())
+        `,
+        [verificationId, businessId, normalizedPhone]
+      );
+
+      return verificationId;
+    }
 
     async function seedBookableBusiness() {
       const userId = randomUUID();
@@ -284,7 +431,7 @@ describe("PostgresGuestBookingRepository", () => {
         [staffMemberId, userId, businessId]
       );
 
-      return { businessId, serviceId, staffMemberId };
+      return { businessId, serviceId, staffMemberId, userId };
     }
   });
 });
@@ -293,11 +440,12 @@ function guestBookingInput(
   appointmentId: string,
   startTime: string,
   endTime: string,
-  ids?: { businessId: string; serviceId: string; staffMemberId: string }
+  ids?: { businessId: string; serviceId: string; staffMemberId: string; verificationId?: string }
 ) {
   const businessId = ids?.businessId ?? "business-1";
 
   return {
+    verificationId: ids?.verificationId ?? "verification-1",
     appointment: {
       businessId,
       endsAt: new Date(`2030-07-02T${endTime}:00.000Z`),

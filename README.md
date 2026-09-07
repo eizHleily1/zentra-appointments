@@ -625,6 +625,20 @@ pnpm db:init:client-identity
 
 This replaces the unique active phone-per-business index with a unique index on active clients for `(business_id, normalized phone, normalized display name)` so the same phone number can represent different people.
 
+Iteration 15 booking phone verification is initialized explicitly with:
+
+```text
+apps/api/db/iteration-15-booking-phone-verification.sql
+```
+
+Run the SQL with:
+
+```bash
+pnpm db:init:booking-verification
+```
+
+This adds the `booking_phone_verifications` challenge table for public guest booking and splits the client identity index into separate unique indexes for linked and unlinked clients, so an anonymous booking can never reuse a client that belongs to a registered user.
+
 ### Fresh local database setup
 
 Start PostgreSQL, then apply migrations in order:
@@ -645,6 +659,7 @@ pnpm db:init:appointment-clients
 pnpm db:init:location
 pnpm db:init:booking-interval
 pnpm db:init:client-identity
+pnpm db:init:booking-verification
 ```
 
 Existing databases only need the migrations they have not applied yet. SQL files use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` where possible so re-running a migration is usually safe.

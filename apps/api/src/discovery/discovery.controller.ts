@@ -1,16 +1,24 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from "@nestjs/common";
 import { AppointmentsService } from "../appointments/appointments.service";
+import { BookingVerificationService } from "../booking-verification/booking-verification.service";
 import { GetAvailableSlotsQueryDto } from "../appointments/dto/get-available-slots-query.dto";
-import { BookingRateLimitGuard } from "./booking-rate-limit.guard";
+import {
+  BookingRateLimitGuard,
+  BookingVerificationCheckRateLimitGuard,
+  BookingVerificationRequestRateLimitGuard
+} from "./booking-rate-limit.guard";
 import { CreateConsumerAppointmentDto } from "./dto/create-consumer-appointment.dto";
 import { ListDiscoveryBusinessesQueryDto } from "./dto/list-discovery-businesses-query.dto";
+import { RequestBookingVerificationDto } from "./dto/request-booking-verification.dto";
+import { VerifyBookingVerificationDto } from "./dto/verify-booking-verification.dto";
 import { DiscoveryService } from "./discovery.service";
 
 @Controller("discovery")
 export class DiscoveryController {
   constructor(
     private readonly discoveryService: DiscoveryService,
-    private readonly appointmentsService: AppointmentsService
+    private readonly appointmentsService: AppointmentsService,
+    private readonly bookingVerificationService: BookingVerificationService
   ) {}
 
   @Get("businesses")
@@ -36,6 +44,32 @@ export class DiscoveryController {
     });
   }
 
+  @Post("businesses/:businessId/booking-verifications")
+  @UseGuards(BookingVerificationRequestRateLimitGuard)
+  requestBookingVerification(
+    @Param("businessId") businessId: string,
+    @Body() body: RequestBookingVerificationDto
+  ) {
+    return this.bookingVerificationService.requestVerification({
+      businessId,
+      phoneNumber: body.phoneNumber
+    });
+  }
+
+  @Post("businesses/:businessId/booking-verifications/:verificationId/verify")
+  @UseGuards(BookingVerificationCheckRateLimitGuard)
+  verifyBookingVerification(
+    @Param("businessId") businessId: string,
+    @Param("verificationId", new ParseUUIDPipe()) verificationId: string,
+    @Body() body: VerifyBookingVerificationDto
+  ) {
+    return this.bookingVerificationService.verifyCode({
+      businessId,
+      code: body.code,
+      verificationId
+    });
+  }
+
   @Post("businesses/:businessId/appointments")
   @UseGuards(BookingRateLimitGuard)
   createAppointment(@Param("businessId") businessId: string, @Body() body: CreateConsumerAppointmentDto) {
@@ -45,7 +79,8 @@ export class DiscoveryController {
       phoneNumber: body.phoneNumber,
       serviceId: body.serviceId,
       staffMemberId: body.staffMemberId,
-      startTime: body.startTime
+      startTime: body.startTime,
+      verificationId: body.verificationId
     });
   }
 }

@@ -16,9 +16,22 @@ export type GuestAppointmentWrite = Omit<
   "clientDisplayName" | "clientId" | "clientPhoneNumber"
 >;
 
+/**
+ * Raised when the booking transaction cannot consume a verified challenge for this
+ * business and phone number, whether it is missing, unverified, expired, or already
+ * used by another booking.
+ */
+export class GuestBookingVerificationError extends Error {
+  constructor() {
+    super("Verify your phone number before booking");
+    this.name = "GuestBookingVerificationError";
+  }
+}
+
 export interface GuestBookingRepository {
   createGuestBooking(input: {
     appointment: GuestAppointmentWrite;
     guest: GuestClientIdentity;
+    verificationId: string;
   }): Promise<{ appointment: Appointment; client: Client }>;
 }

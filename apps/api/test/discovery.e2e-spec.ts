@@ -9,6 +9,9 @@ import { PostgresAppointmentRepository } from "../src/appointments/postgres-appo
 import { PostgresGuestBookingRepository } from "../src/appointments/postgres-guest-booking.repository";
 import { AUTH_REPOSITORY } from "../src/auth/auth.repository";
 import { PostgresAuthRepository } from "../src/auth/postgres-auth.repository";
+import { BOOKING_VERIFICATION_REPOSITORY } from "../src/booking-verification/booking-verification.repository";
+import { PHONE_VERIFICATION_SENDER } from "../src/booking-verification/phone-verification.sender";
+import { PostgresBookingVerificationRepository } from "../src/booking-verification/postgres-booking-verification.repository";
 import { BUSINESS_HOURS_REPOSITORY } from "../src/businesses/business-hours.repository";
 import { PostgresBusinessHoursRepository } from "../src/businesses/postgres-business-hours.repository";
 import { BUSINESS_REPOSITORY } from "../src/businesses/business.repository";
@@ -19,8 +22,10 @@ import { PostgresServiceRepository } from "../src/services/postgres-service.repo
 import { SERVICE_REPOSITORY } from "../src/services/service.repository";
 import { PostgresStaffRepository } from "../src/staff/postgres-staff.repository";
 import { STAFF_REPOSITORY } from "../src/staff/staff.repository";
+import { FakePhoneVerificationSender } from "./fake-phone-verification.sender";
 import { InMemoryAppointmentRepository } from "./in-memory-appointment.repository";
 import { InMemoryAuthRepository } from "./in-memory-auth.repository";
+import { InMemoryBookingVerificationRepository } from "./in-memory-booking-verification.repository";
 import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 import { InMemoryClientRepository } from "./in-memory-client.repository";
@@ -35,11 +40,15 @@ describe("DiscoveryController", () => {
   let appointmentRepository: InMemoryAppointmentRepository;
   let businessRepository: InMemoryBusinessRepository;
   let clientRepository: InMemoryClientRepository;
+  let verificationRepository: InMemoryBookingVerificationRepository;
+  let verificationSender: FakePhoneVerificationSender;
 
   beforeEach(async () => {
     appointmentRepository = new InMemoryAppointmentRepository();
     businessRepository = new InMemoryBusinessRepository();
     clientRepository = new InMemoryClientRepository();
+    verificationRepository = new InMemoryBookingVerificationRepository();
+    verificationSender = new FakePhoneVerificationSender();
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
@@ -49,9 +58,17 @@ describe("DiscoveryController", () => {
       .overrideProvider(PostgresAppointmentRepository)
       .useValue({})
       .overrideProvider(GUEST_BOOKING_REPOSITORY)
-      .useValue(new InMemoryGuestBookingRepository(clientRepository, appointmentRepository))
+      .useValue(
+        new InMemoryGuestBookingRepository(clientRepository, appointmentRepository, verificationRepository)
+      )
       .overrideProvider(PostgresGuestBookingRepository)
       .useValue({})
+      .overrideProvider(BOOKING_VERIFICATION_REPOSITORY)
+      .useValue(verificationRepository)
+      .overrideProvider(PostgresBookingVerificationRepository)
+      .useValue({})
+      .overrideProvider(PHONE_VERIFICATION_SENDER)
+      .useValue(verificationSender)
       .overrideProvider(AUTH_REPOSITORY)
       .useValue(new InMemoryAuthRepository())
       .overrideProvider(PostgresAuthRepository)
@@ -243,7 +260,7 @@ describe("DiscoveryController", () => {
     const appointment = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .send(
-        guestBookingBody(setup, slots[0].startTime, {
+        await verifiedGuestBookingBody(app, verificationSender, setup, slots[0].startTime, {
           displayName: "Maria Lopez",
           phoneNumber: "+1 555-123-4567"
         })
@@ -268,10 +285,10 @@ describe("DiscoveryController", () => {
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .send({
         clientId: guestClient?.id,
-        ...guestBookingBody(setup, slots[1].startTime, {
+        ...(await verifiedGuestBookingBody(app, verificationSender, setup, slots[1].startTime, {
           displayName: "Maria Lopez",
           phoneNumber: "+1 555-123-4567"
-        })
+        }))
       })
       .expect(400);
   });
@@ -289,7 +306,8 @@ describe("DiscoveryController", () => {
         phoneNumber: "+1 555-123-4567",
         serviceId: setup.businessService.id,
         staffMemberId: setup.staffMember.id,
-        startTime: slots[0].startTime
+        startTime: slots[0].startTime,
+        verificationId: randomUUID()
       })
       .expect(400);
 
@@ -299,7 +317,8 @@ describe("DiscoveryController", () => {
         displayName: "Maria Lopez",
         serviceId: setup.businessService.id,
         staffMemberId: setup.staffMember.id,
-        startTime: slots[0].startTime
+        startTime: slots[0].startTime,
+        verificationId: randomUUID()
       })
       .expect(400);
 
@@ -308,9 +327,21 @@ describe("DiscoveryController", () => {
       .send(
         guestBookingBody(setup, slots[0].startTime, {
           displayName: "Maria Lopez",
-          phoneNumber: "abc"
+          phoneNumber: "abc",
+          verificationId: randomUUID()
         })
       )
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send({
+        displayName: "Maria Lopez",
+        phoneNumber: "+1 555-123-4567",
+        serviceId: setup.businessService.id,
+        staffMemberId: setup.staffMember.id,
+        startTime: slots[0].startTime
+      })
       .expect(400);
   });
 
@@ -324,7 +355,7 @@ describe("DiscoveryController", () => {
     const parent = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .send(
-        guestBookingBody(setup, slots[0].startTime, {
+        await verifiedGuestBookingBody(app, verificationSender, setup, slots[0].startTime, {
           displayName: "Maria Lopez",
           phoneNumber: "555-123-4567"
         })
@@ -335,18 +366,19 @@ describe("DiscoveryController", () => {
     const parentAgain = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .send(
-        guestBookingBody(setup, remainingAfterParent[0].startTime, {
+        await verifiedGuestBookingBody(app, verificationSender, setup, remainingAfterParent[0].startTime, {
           displayName: "  maria lopez ",
           phoneNumber: "(555) 123-4567"
         })
       )
       .expect(201);
 
+    // The same verified phone may book under a different display name.
     const remainingAfterParentAgain = await fetchConsumerSlots(app, setup, TEST_DATE);
     const child = await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .send(
-        guestBookingBody(setup, remainingAfterParentAgain[0].startTime, {
+        await verifiedGuestBookingBody(app, verificationSender, setup, remainingAfterParentAgain[0].startTime, {
           displayName: "Alex Lopez",
           phoneNumber: "555-123-4567"
         })
@@ -368,7 +400,7 @@ describe("DiscoveryController", () => {
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .send(
-        guestBookingBody(setup, slots[0].startTime, {
+        await verifiedGuestBookingBody(app, verificationSender, setup, slots[0].startTime, {
           displayName: "Maria Lopez",
           phoneNumber: "+1 555-123-4567"
         })
@@ -378,7 +410,7 @@ describe("DiscoveryController", () => {
     await request(app.getHttpServer())
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .send(
-        guestBookingBody(setup, slots[0].startTime, {
+        await verifiedGuestBookingBody(app, verificationSender, setup, slots[0].startTime, {
           displayName: "Alex Lopez",
           phoneNumber: "+1 555-123-4567"
         })
@@ -387,6 +419,271 @@ describe("DiscoveryController", () => {
 
     expect(clientRepository.getClients().filter((client) => client.displayName === "Maria Lopez")).toHaveLength(1);
     expect(clientRepository.getClients().filter((client) => client.displayName === "Alex Lopez")).toEqual([]);
+  });
+
+  it("issues a booking verification challenge without leaking the code", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+
+    const challenge = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
+      .send({ phoneNumber: "+1 (555) 123-4567" })
+      .expect(201);
+
+    const code = verificationSender.lastCodeFor("+1 (555) 123-4567");
+
+    expect(challenge.body).toMatchObject({ attemptsRemaining: 5 });
+    expect(challenge.body.verificationId).toBeDefined();
+    expect(new Date(challenge.body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    expect(JSON.stringify(challenge.body)).not.toContain(code);
+
+    const [stored] = verificationRepository.getVerifications();
+    expect(stored.normalizedPhone).toBe("15551234567");
+    expect(stored.codeHash).not.toContain(code);
+    expect(stored.verifiedAt).toBeNull();
+  });
+
+  it("rejects an incorrect verification code and enforces the attempt limit", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+
+    const challenge = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
+      .send({ phoneNumber: "555-123-4567" })
+      .expect(201);
+    const verifyUrl = `/discovery/businesses/${setup.business.id}/booking-verifications/${challenge.body.verificationId}/verify`;
+    const correctCode = verificationSender.lastCodeFor("555-123-4567");
+    const wrongCode = ((Number(correctCode) + 1) % 1_000_000).toString().padStart(6, "0");
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const failed = await request(app.getHttpServer()).post(verifyUrl).send({ code: wrongCode }).expect(400);
+      expect(failed.body.message).toBe("Verification code is invalid or expired");
+    }
+
+    const exhausted = await request(app.getHttpServer()).post(verifyUrl).send({ code: wrongCode }).expect(400);
+    expect(exhausted.body.message).toBe("Too many incorrect codes. Request a new code.");
+
+    await request(app.getHttpServer()).post(verifyUrl).send({ code: correctCode }).expect(400);
+  });
+
+  it("rejects an expired verification code", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+
+    const challenge = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/booking-verifications`)
+      .send({ phoneNumber: "555-123-4567" })
+      .expect(201);
+    verificationRepository.expireVerification(challenge.body.verificationId);
+
+    const response = await request(app.getHttpServer())
+      .post(
+        `/discovery/businesses/${setup.business.id}/booking-verifications/${challenge.body.verificationId}/verify`
+      )
+      .send({ code: verificationSender.lastCodeFor("555-123-4567") })
+      .expect(400);
+
+    expect(response.body.message).toBe("Verification code expired");
+  });
+
+  it("rejects a verified challenge used for another phone number or business", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    const otherSetup = await createBookableSetup(app, owner.accessToken, staffUser.userId, 30, "Shave", "Other Shop");
+    activateBusiness(businessRepository, setup.business.id);
+    activateBusiness(businessRepository, otherSetup.business.id);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+    const verificationId = await verifyGuestPhone(app, verificationSender, setup.business.id, "555-123-4567");
+
+    const wrongPhone = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-999-8888",
+          verificationId
+        })
+      )
+      .expect(400);
+
+    expect(wrongPhone.body.message).toBe("Verify your phone number before booking");
+
+    const otherSlots = await fetchConsumerSlots(app, otherSetup, TEST_DATE);
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${otherSetup.business.id}/appointments`)
+      .send(
+        guestBookingBody(otherSetup, otherSlots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId
+        })
+      )
+      .expect(400);
+
+    expect(clientRepository.getClients()).toEqual([]);
+  });
+
+  it("consumes a verified challenge exactly once", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+    const verificationId = await verifyGuestPhone(app, verificationSender, setup.business.id, "555-123-4567");
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId
+        })
+      )
+      .expect(201);
+
+    const remaining = await fetchConsumerSlots(app, setup, TEST_DATE);
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, remaining[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId
+        })
+      )
+      .expect(400);
+
+    expect(appointmentRepository.getAppointments()).toHaveLength(1);
+  });
+
+  it("keeps a verified challenge usable when the slot became unavailable", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        await verifiedGuestBookingBody(app, verificationSender, setup, slots[0].startTime, {
+          displayName: "Alex Lopez",
+          phoneNumber: "555-000-1111"
+        })
+      )
+      .expect(201);
+
+    const verificationId = await verifyGuestPhone(app, verificationSender, setup.business.id, "555-123-4567");
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId
+        })
+      )
+      .expect(409);
+
+    const remaining = await fetchConsumerSlots(app, setup, TEST_DATE);
+    await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        guestBookingBody(setup, remaining[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567",
+          verificationId
+        })
+      )
+      .expect(201);
+  });
+
+  it("never reuses a linked client for an anonymous verified booking", async () => {
+    const owner = await registerAndGetIdentity(app, "owner@example.com");
+    const consumer = await registerAndGetIdentity(app, "consumer@example.com");
+    const staffUser = await registerAndGetIdentity(app, "staff@example.com");
+    const setup = await createBookableSetup(app, owner.accessToken, staffUser.userId);
+    activateBusiness(businessRepository, setup.business.id);
+    const linkedClient = await clientRepository.createClient({
+      businessId: setup.business.id,
+      displayName: "Maria Lopez",
+      email: null,
+      id: randomUUID(),
+      linkedUserId: consumer.userId,
+      phoneNumber: "555-123-4567"
+    });
+    const slots = await fetchConsumerSlots(app, setup, TEST_DATE);
+
+    const appointment = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${setup.business.id}/appointments`)
+      .send(
+        await verifiedGuestBookingBody(app, verificationSender, setup, slots[0].startTime, {
+          displayName: "Maria Lopez",
+          phoneNumber: "555-123-4567"
+        })
+      )
+      .expect(201);
+
+    expect(appointment.body.clientId).not.toBe(linkedClient.id);
+
+    const guestClient = clientRepository.getClients().find((client) => client.id === appointment.body.clientId);
+    expect(guestClient?.linkedUserId).toBeNull();
+
+    const mine = await request(app.getHttpServer())
+      .get("/me/appointments")
+      .set("authorization", `Bearer ${consumer.accessToken}`)
+      .expect(200);
+
+    expect(mine.body).toEqual([]);
+  });
+
+  it("rate limits verification code requests from the connection address", async () => {
+    const businessId = randomUUID();
+    const max = Number(process.env.GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX ?? 5);
+
+    for (let attempt = 0; attempt < max; attempt += 1) {
+      await request(app.getHttpServer())
+        .post(`/discovery/businesses/${businessId}/booking-verifications`)
+        .set("x-forwarded-for", `198.51.100.${attempt}`)
+        .send({ phoneNumber: "555-123-4567" });
+    }
+
+    const response = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${businessId}/booking-verifications`)
+      .set("x-forwarded-for", "203.0.113.1")
+      .send({ phoneNumber: "555-123-4567" })
+      .expect(429);
+
+    expect(response.body.message).toBe("Too many verification code requests");
+  });
+
+  it("rate limits verification code checks from the connection address", async () => {
+    const businessId = randomUUID();
+    const verificationId = randomUUID();
+    const max = Number(process.env.GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX ?? 10);
+
+    for (let attempt = 0; attempt < max; attempt += 1) {
+      await request(app.getHttpServer())
+        .post(`/discovery/businesses/${businessId}/booking-verifications/${verificationId}/verify`)
+        .set("x-forwarded-for", `198.51.100.${attempt}`)
+        .send({ code: "000000" });
+    }
+
+    const response = await request(app.getHttpServer())
+      .post(`/discovery/businesses/${businessId}/booking-verifications/${verificationId}/verify`)
+      .set("x-forwarded-for", "203.0.113.1")
+      .send({ code: "000000" })
+      .expect(429);
+
+    expect(response.body.message).toBe("Too many verification attempts");
   });
 
   it("rate limits public guest booking attempts from the connection address", async () => {
@@ -422,7 +719,7 @@ describe("DiscoveryController", () => {
       .post(`/discovery/businesses/${setup.business.id}/appointments`)
       .set("authorization", `Bearer ${consumer.accessToken}`)
       .send(
-        guestBookingBody(setup, slots[0].startTime, {
+        await verifiedGuestBookingBody(app, verificationSender, setup, slots[0].startTime, {
           displayName: "Maria Lopez",
           phoneNumber: "+1 555-123-4567"
         })
@@ -512,7 +809,8 @@ describe("DiscoveryController", () => {
       .send(
         guestBookingBody(setup, slots[0].startTime, {
           displayName: "Maria Lopez",
-          phoneNumber: "+1 555-123-4567"
+          phoneNumber: "+1 555-123-4567",
+          verificationId: randomUUID()
         })
       )
       .expect(404);
@@ -623,15 +921,49 @@ async function fetchConsumerSlots(
 function guestBookingBody(
   setup: { businessService: { id: string }; staffMember: { id: string } },
   startTime: string,
-  guest: { displayName: string; phoneNumber: string }
+  guest: { displayName: string; phoneNumber: string; verificationId: string }
 ) {
   return {
     displayName: guest.displayName,
     phoneNumber: guest.phoneNumber,
     serviceId: setup.businessService.id,
     staffMemberId: setup.staffMember.id,
-    startTime
+    startTime,
+    verificationId: guest.verificationId
   };
+}
+
+/** Walks the public request-code and verify-code endpoints the way a guest would. */
+async function verifyGuestPhone(
+  app: INestApplication,
+  sender: FakePhoneVerificationSender,
+  businessId: string,
+  phoneNumber: string
+): Promise<string> {
+  const challenge = await request(app.getHttpServer())
+    .post(`/discovery/businesses/${businessId}/booking-verifications`)
+    .send({ phoneNumber })
+    .expect(201);
+
+  await request(app.getHttpServer())
+    .post(`/discovery/businesses/${businessId}/booking-verifications/${challenge.body.verificationId}/verify`)
+    .send({ code: sender.lastCodeFor(phoneNumber) })
+    .expect(201);
+
+  return challenge.body.verificationId;
+}
+
+async function verifiedGuestBookingBody(
+  app: INestApplication,
+  sender: FakePhoneVerificationSender,
+  setup: { business: { id: string }; businessService: { id: string }; staffMember: { id: string } },
+  startTime: string,
+  guest: { displayName: string; phoneNumber: string }
+) {
+  return guestBookingBody(setup, startTime, {
+    ...guest,
+    verificationId: await verifyGuestPhone(app, sender, setup.business.id, guest.phoneNumber)
+  });
 }
 
 function getSubjectFromJwt(accessToken: string): string {

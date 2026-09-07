@@ -65,7 +65,11 @@ export { BusinessCard } from "./components/BusinessCard";
 export { buildBookAppointmentPayload, BookAppointmentScreen } from "./screens/owner/BookAppointmentScreen";
 export { CategoryBusinessListScreen } from "./screens/consumer/CategoryBusinessListScreen";
 export { BusinessProfileScreen } from "./screens/consumer/BusinessProfileScreen";
-export { buildConsumerBookAppointmentPayload, ClientBookAppointmentScreen } from "./screens/consumer/ClientBookAppointmentScreen";
+export {
+  buildBookingVerificationRequestPayload,
+  buildConsumerBookAppointmentPayload,
+  ClientBookAppointmentScreen
+} from "./screens/consumer/ClientBookAppointmentScreen";
 export { ConsumerAppointmentCard } from "./components/ConsumerAppointmentCard";
 
 export default function App() {
@@ -589,7 +593,6 @@ export default function App() {
                 void loadMyAppointments();
               }}
               request={api.request}
-              run={run}
             />
           ) : null}
 

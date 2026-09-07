@@ -2,24 +2,38 @@ import { ConflictException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { Client } from "../src/clients/client.repository";
 import type { Appointment } from "../src/appointments/appointment.repository";
-import type {
-  GuestAppointmentWrite,
-  GuestBookingRepository,
-  GuestClientIdentity
+import {
+  GuestBookingVerificationError,
+  type GuestAppointmentWrite,
+  type GuestBookingRepository,
+  type GuestClientIdentity
 } from "../src/appointments/guest-booking.repository";
 import { InMemoryAppointmentRepository } from "./in-memory-appointment.repository";
+import { InMemoryBookingVerificationRepository } from "./in-memory-booking-verification.repository";
 import { InMemoryClientRepository } from "./in-memory-client.repository";
 
 export class InMemoryGuestBookingRepository implements GuestBookingRepository {
   constructor(
     private readonly clientRepository: InMemoryClientRepository,
-    private readonly appointmentRepository: InMemoryAppointmentRepository
+    private readonly appointmentRepository: InMemoryAppointmentRepository,
+    private readonly verificationRepository: InMemoryBookingVerificationRepository
   ) {}
 
   async createGuestBooking(input: {
     appointment: GuestAppointmentWrite;
     guest: GuestClientIdentity;
+    verificationId: string;
   }): Promise<{ appointment: Appointment; client: Client }> {
+    const consumed = this.verificationRepository.consumeVerifiedChallenge({
+      businessId: input.guest.businessId,
+      normalizedPhone: input.guest.normalizedPhone,
+      verificationId: input.verificationId
+    });
+
+    if (!consumed) {
+      throw new GuestBookingVerificationError();
+    }
+
     let createdClientId: string | null = null;
 
     try {
@@ -34,9 +48,12 @@ export class InMemoryGuestBookingRepository implements GuestBookingRepository {
 
       return { appointment, client: client.record };
     } catch (error) {
+      // Compensating undo for the writes this call made, matching a transaction rollback.
       if (createdClientId) {
         this.clientRepository.removeClient(createdClientId);
       }
+
+      this.verificationRepository.releaseConsumedChallenge(input.verificationId);
 
       throw error;
     }
@@ -45,7 +62,7 @@ export class InMemoryGuestBookingRepository implements GuestBookingRepository {
   private async resolveGuestClient(
     guest: GuestClientIdentity
   ): Promise<{ created: boolean; record: Client }> {
-    const existing = await this.clientRepository.findActiveClientByNormalizedPhoneAndNameForBusiness(
+    const existing = await this.clientRepository.findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
       guest.businessId,
       guest.normalizedPhone,
       guest.normalizedDisplayName
@@ -71,7 +88,7 @@ export class InMemoryGuestBookingRepository implements GuestBookingRepository {
         throw error;
       }
 
-      const raced = await this.clientRepository.findActiveClientByNormalizedPhoneAndNameForBusiness(
+      const raced = await this.clientRepository.findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
         guest.businessId,
         guest.normalizedPhone,
         guest.normalizedDisplayName

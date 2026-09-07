@@ -16,7 +16,11 @@ import {
   type ConsumerAppointment,
   type CreateAppointmentInput
 } from "./appointment.repository";
-import { GUEST_BOOKING_REPOSITORY, type GuestBookingRepository } from "./guest-booking.repository";
+import {
+  GUEST_BOOKING_REPOSITORY,
+  GuestBookingVerificationError,
+  type GuestBookingRepository
+} from "./guest-booking.repository";
 import {
   appointmentBlocksScheduling,
   appointmentsOverlap,
@@ -44,6 +48,7 @@ interface CreateConsumerAppointmentCommand {
   serviceId: string;
   staffMemberId: string;
   startTime: string;
+  verificationId: string;
 }
 
 interface GetAvailableSlotsCommand {
@@ -119,13 +124,18 @@ export class AppointmentsService {
           ...prepared,
           id: randomUUID()
         },
-        guest
+        guest,
+        verificationId: command.verificationId
       });
 
       return booked.appointment;
     } catch (error) {
       if (isPostgresExclusionViolation(error)) {
         throw new ConflictException("This appointment slot is no longer available");
+      }
+
+      if (error instanceof GuestBookingVerificationError) {
+        throw new BadRequestException(error.message);
       }
 
       throw error;

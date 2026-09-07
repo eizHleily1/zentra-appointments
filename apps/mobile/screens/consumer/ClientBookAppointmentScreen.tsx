@@ -6,26 +6,35 @@ import { buildDateStripOptions, formatDateKey } from "../../lib/dates";
 import { formatServicePriceDisplay } from "../../lib/formatters";
 import type { AvailableSlot, BookingConfirmationDetails, PublicBusinessProfile } from "../../lib/types";
 
+export type PhoneVerificationStep = "idle" | "sending" | "sent" | "verifying" | "verified";
+
 export function buildConsumerBookAppointmentPayload(input: {
   displayName: string;
   phoneNumber: string;
   serviceId: string;
   staffMemberId: string;
   startTime: string;
+  verificationId: string;
 }): {
   displayName: string;
   phoneNumber: string;
   serviceId: string;
   staffMemberId: string;
   startTime: string;
+  verificationId: string;
 } {
   return {
     displayName: input.displayName.trim(),
     phoneNumber: input.phoneNumber.trim(),
     serviceId: input.serviceId,
     staffMemberId: input.staffMemberId,
-    startTime: input.startTime
+    startTime: input.startTime,
+    verificationId: input.verificationId
   };
+}
+
+export function buildBookingVerificationRequestPayload(input: { phoneNumber: string }): { phoneNumber: string } {
+  return { phoneNumber: input.phoneNumber.trim() };
 }
 
 export function ClientBookAppointmentScreen({
@@ -33,8 +42,7 @@ export function ClientBookAppointmentScreen({
   initialSelections,
   onBack,
   onBooked,
-  request,
-  run
+  request
 }: {
   business: PublicBusinessProfile;
   initialSelections?: {
@@ -46,7 +54,6 @@ export function ClientBookAppointmentScreen({
   onBack: () => void;
   onBooked: (confirmation: BookingConfirmationDetails) => void;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
-  run: (action: () => Promise<void>, successMessage?: string) => Promise<void>;
 }) {
   const dateOptions = useMemo(() => buildDateStripOptions(14), []);
   const [selectedServiceId, setSelectedServiceId] = useState(initialSelections?.selectedServiceId ?? "");
@@ -60,6 +67,12 @@ export function ClientBookAppointmentScreen({
   const [phoneNumber, setPhoneNumber] = useState("");
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [verificationStep, setVerificationStep] = useState<PhoneVerificationStep>("idle");
+  const [verificationId, setVerificationId] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [booking, setBooking] = useState(false);
 
   const selectedService = business.services.find((service) => service.id === selectedServiceId);
   const selectedStaff = business.staff.find((member) => member.id === selectedStaffMemberId);
@@ -111,6 +124,109 @@ export function ClientBookAppointmentScreen({
   function resetTimes() {
     setAvailableSlots([]);
     setSelectedStartTime("");
+  }
+
+  // A challenge is tied to the phone number, so editing the number invalidates it.
+  // Changing the name or the slot does not, which is what lets a guest retry after a
+  // slot is taken without asking for another code.
+  function changePhoneNumber(value: string) {
+    setPhoneNumber(value);
+    setVerificationStep("idle");
+    setVerificationId("");
+    setVerificationCode("");
+    setVerificationError(null);
+    setBookingError(null);
+  }
+
+  async function sendVerificationCode() {
+    if (!phoneNumber.trim()) {
+      setVerificationError("Enter a phone number");
+      return;
+    }
+
+    setVerificationStep("sending");
+    setVerificationError(null);
+    setBookingError(null);
+
+    try {
+      const challenge = await request<{ verificationId: string }>(
+        `/discovery/businesses/${business.id}/booking-verifications`,
+        {
+          body: JSON.stringify(buildBookingVerificationRequestPayload({ phoneNumber })),
+          method: "POST"
+        }
+      );
+
+      setVerificationId(challenge.verificationId);
+      setVerificationCode("");
+      setVerificationStep("sent");
+    } catch (error: unknown) {
+      setVerificationStep("idle");
+      setVerificationError(error instanceof Error ? error.message : "Could not send a verification code");
+    }
+  }
+
+  async function verifyCode() {
+    setVerificationStep("verifying");
+    setVerificationError(null);
+
+    try {
+      await request(`/discovery/businesses/${business.id}/booking-verifications/${verificationId}/verify`, {
+        body: JSON.stringify({ code: verificationCode.trim() }),
+        method: "POST"
+      });
+
+      setVerificationStep("verified");
+    } catch (error: unknown) {
+      setVerificationStep("sent");
+      setVerificationError(error instanceof Error ? error.message : "Could not verify that code");
+    }
+  }
+
+  async function confirmBooking() {
+    if (!selectedService || !selectedStaff) {
+      setBookingError("Select a service and staff member");
+      return;
+    }
+
+    if (!displayName.trim()) {
+      setBookingError("Enter your name");
+      return;
+    }
+
+    setBooking(true);
+    setBookingError(null);
+
+    try {
+      const appointment = await request<{ startsAt: string }>(
+        `/discovery/businesses/${business.id}/appointments`,
+        {
+          body: JSON.stringify(
+            buildConsumerBookAppointmentPayload({
+              displayName,
+              phoneNumber,
+              serviceId: selectedServiceId,
+              staffMemberId: selectedStaffMemberId,
+              startTime: selectedStartTime,
+              verificationId
+            })
+          ),
+          method: "POST"
+        }
+      );
+
+      onBooked({
+        businessName: business.name,
+        serviceName: selectedService.name,
+        staffName: selectedStaff.displayName,
+        startsAt: appointment.startsAt,
+        timezone: business.timezone
+      });
+    } catch (error: unknown) {
+      setBookingError(error instanceof Error ? error.message : "Could not confirm the booking");
+    } finally {
+      setBooking(false);
+    }
   }
 
   return (
@@ -196,55 +312,81 @@ export function ClientBookAppointmentScreen({
               <TextInput
                 autoCapitalize="none"
                 keyboardType="phone-pad"
-                onChangeText={setPhoneNumber}
+                onChangeText={changePhoneNumber}
                 placeholder="Phone number"
                 style={styles.input}
                 value={phoneNumber}
               />
-              <Pressable
-                onPress={() =>
-                  void run(async () => {
-                    if (!selectedService || !selectedStaff) {
-                      throw new Error("Select a service and staff member");
-                    }
 
-                    if (!displayName.trim()) {
-                      throw new Error("Enter your name");
-                    }
+              {verificationStep === "verified" ? (
+                <Text style={styles.successText}>Phone verified</Text>
+              ) : (
+                <>
+                  <Pressable
+                    disabled={verificationStep === "sending" || verificationStep === "verifying"}
+                    onPress={() => void sendVerificationCode()}
+                    style={[
+                      styles.secondaryButton,
+                      verificationStep === "sending" && styles.secondaryButtonDisabled
+                    ]}
+                  >
+                    <Text style={styles.secondaryButtonText}>
+                      {verificationStep === "sending"
+                        ? "Sending code..."
+                        : verificationStep === "idle"
+                          ? "Send code"
+                          : "Resend code"}
+                    </Text>
+                  </Pressable>
 
-                    if (!phoneNumber.trim()) {
-                      throw new Error("Enter a phone number");
-                    }
+                  {verificationStep === "sent" || verificationStep === "verifying" ? (
+                    <>
+                      <Text style={styles.helperText}>
+                        We sent a 6-digit code to {phoneNumber.trim()}. It expires in a few minutes.
+                      </Text>
+                      <TextInput
+                        autoCapitalize="none"
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        onChangeText={setVerificationCode}
+                        placeholder="6-digit code"
+                        style={styles.input}
+                        value={verificationCode}
+                      />
+                      <Pressable
+                        disabled={verificationStep === "verifying" || verificationCode.trim().length === 0}
+                        onPress={() => void verifyCode()}
+                        style={[
+                          styles.secondaryButton,
+                          (verificationStep === "verifying" || verificationCode.trim().length === 0) &&
+                            styles.secondaryButtonDisabled
+                        ]}
+                      >
+                        <Text style={styles.secondaryButtonText}>
+                          {verificationStep === "verifying" ? "Checking code..." : "Verify code"}
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : null}
+                </>
+              )}
 
-                    const appointment = await request<{ startsAt: string }>(
-                      `/discovery/businesses/${business.id}/appointments`,
-                      {
-                        body: JSON.stringify(
-                          buildConsumerBookAppointmentPayload({
-                            displayName,
-                            phoneNumber,
-                            serviceId: selectedServiceId,
-                            staffMemberId: selectedStaffMemberId,
-                            startTime: selectedStartTime
-                          })
-                        ),
-                        method: "POST"
-                      }
-                    );
+              {verificationError ? <Text style={styles.errorText}>{verificationError}</Text> : null}
+              {bookingError ? <Text style={styles.errorText}>{bookingError}</Text> : null}
 
-                    onBooked({
-                      businessName: business.name,
-                      serviceName: selectedService.name,
-                      staffName: selectedStaff.displayName,
-                      startsAt: appointment.startsAt,
-                      timezone: business.timezone
-                    });
-                  })
-                }
-                style={styles.primaryButton}
-              >
-                <Text style={styles.primaryButtonText}>Confirm booking</Text>
-              </Pressable>
+              {verificationStep === "verified" ? (
+                <Pressable
+                  disabled={booking}
+                  onPress={() => void confirmBooking()}
+                  style={[styles.primaryButton, booking && styles.primaryButtonDisabled]}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {booking ? "Confirming..." : "Confirm booking"}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.helperText}>Verify your phone number to confirm this booking.</Text>
+              )}
             </>
           ) : null}
         </>
@@ -283,6 +425,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 20
   },
+  helperText: {
+    color: "#64748b",
+    marginTop: 10
+  },
   input: {
     backgroundColor: "#ffffff",
     borderColor: "#cbd5e1",
@@ -298,9 +444,27 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingVertical: 14
   },
+  primaryButtonDisabled: {
+    backgroundColor: "#94a3b8"
+  },
   primaryButtonText: {
     color: "#ffffff",
     fontSize: 16,
+    fontWeight: "700"
+  },
+  secondaryButton: {
+    alignItems: "center",
+    backgroundColor: "#e2e8f0",
+    borderRadius: 12,
+    marginTop: 12,
+    paddingVertical: 12
+  },
+  secondaryButtonDisabled: {
+    backgroundColor: "#f1f5f9"
+  },
+  secondaryButtonText: {
+    color: "#0f172a",
+    fontSize: 15,
     fontWeight: "700"
   },
   sectionTitle: {
@@ -359,5 +523,10 @@ const styles = StyleSheet.create({
   staffHint: {
     color: "#64748b",
     marginTop: 16
+  },
+  successText: {
+    color: "#15803d",
+    fontWeight: "700",
+    marginTop: 12
   }
 });

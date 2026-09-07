@@ -14,10 +14,14 @@ export class InMemoryClientRepository implements ClientRepository {
     const normalizedPhone = normalizePhoneNumber(input.phoneNumber);
 
     if (normalizedPhone) {
+      // Mirrors the two partial unique indexes: linked and unlinked identities are
+      // enforced separately so a guest record can coexist with a linked account.
       const duplicate = this.matchActiveClientByNormalizedPhoneAndName(
         input.businessId,
         normalizedPhone,
-        normalizeDisplayNameForMatch(input.displayName)
+        normalizeDisplayNameForMatch(input.displayName),
+        undefined,
+        input.linkedUserId === null ? "unlinked" : "linked"
       );
 
       if (duplicate) {
@@ -108,6 +112,20 @@ export class InMemoryClientRepository implements ClientRepository {
     );
   }
 
+  async findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
+    businessId: string,
+    normalizedPhone: string,
+    normalizedDisplayName: string
+  ): Promise<Client | null> {
+    return this.matchActiveClientByNormalizedPhoneAndName(
+      businessId,
+      normalizedPhone,
+      normalizedDisplayName,
+      undefined,
+      "unlinked"
+    );
+  }
+
   async updateClient(businessId: string, clientId: string, input: UpdateClientInput): Promise<Client | null> {
     const client = await this.findClientByIdForBusiness(businessId, clientId);
 
@@ -175,7 +193,8 @@ export class InMemoryClientRepository implements ClientRepository {
     businessId: string,
     normalizedPhone: string,
     normalizedDisplayName: string,
-    excludeClientId?: string
+    excludeClientId?: string,
+    linkage?: "linked" | "unlinked"
   ): Client | null {
     return (
       Array.from(this.clients.values()).find((client) => {
@@ -184,6 +203,14 @@ export class InMemoryClientRepository implements ClientRepository {
         }
 
         if (excludeClientId && client.id === excludeClientId) {
+          return false;
+        }
+
+        if (linkage === "linked" && client.linkedUserId === null) {
+          return false;
+        }
+
+        if (linkage === "unlinked" && client.linkedUserId !== null) {
           return false;
         }
 

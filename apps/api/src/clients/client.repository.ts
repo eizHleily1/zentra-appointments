@@ -40,6 +40,12 @@ export interface ClientRepository {
     normalizedDisplayName: string,
     excludeClientId?: string
   ): Promise<Client | null>;
+  /** Anonymous guest booking may only ever reuse clients that are not linked to a user account. */
+  findActiveUnlinkedClientByNormalizedPhoneAndNameForBusiness(
+    businessId: string,
+    normalizedPhone: string,
+    normalizedDisplayName: string
+  ): Promise<Client | null>;
   findClientByIdForBusiness(businessId: string, clientId: string): Promise<Client | null>;
   findClientByLinkedUserIdForBusiness(businessId: string, linkedUserId: string): Promise<Client | null>;
   findClientsByLinkedUserId(linkedUserId: string): Promise<Client[]>;

@@ -10,6 +10,13 @@ export interface AppConfig {
   DATABASE_URL: string;
   GUEST_BOOKING_RATE_LIMIT_MAX: number;
   GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX: number;
+  GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS: number;
+  GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX: number;
+  GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS: number;
+  GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS: number;
   JWT_ACCESS_TOKEN_EXPIRES_IN: string;
   JWT_ACCESS_TOKEN_SECRET: string;
   NODE_ENV: AppEnvironment;
@@ -36,6 +43,17 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
   const authRefreshRateLimitTtlSeconds = Number(config.AUTH_REFRESH_RATE_LIMIT_TTL_SECONDS ?? 60);
   const guestBookingRateLimitMax = Number(config.GUEST_BOOKING_RATE_LIMIT_MAX ?? 10);
   const guestBookingRateLimitTtlSeconds = Number(config.GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS ?? 60);
+  const verificationRequestRateLimitMax = Number(config.GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX ?? 5);
+  const verificationRequestRateLimitTtlSeconds = Number(
+    config.GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS ?? 60
+  );
+  const verificationCheckRateLimitMax = Number(config.GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX ?? 10);
+  const verificationCheckRateLimitTtlSeconds = Number(
+    config.GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS ?? 60
+  );
+  const verificationCodeTtlSeconds = Number(config.GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS ?? 300);
+  const verificationMaxAttempts = Number(config.GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS ?? 5);
+  const verificationResendCooldownSeconds = Number(config.GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS ?? 60);
 
   if (!allowedEnvironments.includes(nodeEnv as AppEnvironment)) {
     throw new Error("NODE_ENV must be development, test, or production");
@@ -81,6 +99,20 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
   assertPositiveInteger(authRefreshRateLimitTtlSeconds, "AUTH_REFRESH_RATE_LIMIT_TTL_SECONDS");
   assertPositiveInteger(guestBookingRateLimitMax, "GUEST_BOOKING_RATE_LIMIT_MAX");
   assertPositiveInteger(guestBookingRateLimitTtlSeconds, "GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS");
+  assertPositiveInteger(verificationRequestRateLimitMax, "GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX");
+  assertPositiveInteger(
+    verificationRequestRateLimitTtlSeconds,
+    "GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS"
+  );
+  assertPositiveInteger(verificationCheckRateLimitMax, "GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX");
+  assertPositiveInteger(
+    verificationCheckRateLimitTtlSeconds,
+    "GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS"
+  );
+  assertPositiveInteger(verificationCodeTtlSeconds, "GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS");
+  assertPositiveInteger(verificationMaxAttempts, "GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS");
+  // A zero cooldown disables resend throttling, which is only useful for local testing.
+  assertNonNegativeInteger(verificationResendCooldownSeconds, "GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS");
 
   return {
     AUTH_LOGIN_RATE_LIMIT_MAX: authLoginRateLimitMax,
@@ -92,6 +124,13 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
     DATABASE_URL: databaseUrl,
     GUEST_BOOKING_RATE_LIMIT_MAX: guestBookingRateLimitMax,
     GUEST_BOOKING_RATE_LIMIT_TTL_SECONDS: guestBookingRateLimitTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_MAX: verificationCheckRateLimitMax,
+    GUEST_BOOKING_VERIFICATION_CHECK_RATE_LIMIT_TTL_SECONDS: verificationCheckRateLimitTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_CODE_TTL_SECONDS: verificationCodeTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_MAX_ATTEMPTS: verificationMaxAttempts,
+    GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_MAX: verificationRequestRateLimitMax,
+    GUEST_BOOKING_VERIFICATION_REQUEST_RATE_LIMIT_TTL_SECONDS: verificationRequestRateLimitTtlSeconds,
+    GUEST_BOOKING_VERIFICATION_RESEND_COOLDOWN_SECONDS: verificationResendCooldownSeconds,
     JWT_ACCESS_TOKEN_EXPIRES_IN: jwtAccessTokenExpiresIn,
     JWT_ACCESS_TOKEN_SECRET: jwtAccessTokenSecret,
     NODE_ENV: nodeEnv as AppEnvironment,
@@ -104,6 +143,12 @@ export function validateEnvironment(config: Record<string, unknown>): AppConfig 
 function assertPositiveInteger(value: number, name: string): void {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer`);
+  }
+}
+
+function assertNonNegativeInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
   }
 }
 

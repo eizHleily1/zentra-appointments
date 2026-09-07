@@ -24,6 +24,7 @@ import { InMemoryAuthRepository } from "./in-memory-auth.repository";
 import { InMemoryBusinessHoursRepository } from "./in-memory-business-hours.repository";
 import { InMemoryBusinessRepository } from "./in-memory-business.repository";
 import { InMemoryClientRepository } from "./in-memory-client.repository";
+import { InMemoryBookingVerificationRepository } from "./in-memory-booking-verification.repository";
 import { InMemoryGuestBookingRepository } from "./in-memory-guest-booking.repository";
 import { InMemoryServiceRepository } from "./in-memory-service.repository";
 import { InMemoryStaffRepository } from "./in-memory-staff.repository";
@@ -45,7 +46,13 @@ describe("AppointmentsController", () => {
       .overrideProvider(PostgresAppointmentRepository)
       .useValue({})
       .overrideProvider(GUEST_BOOKING_REPOSITORY)
-      .useValue(new InMemoryGuestBookingRepository(clientRepository, appointmentRepository))
+      .useValue(
+        new InMemoryGuestBookingRepository(
+          clientRepository,
+          appointmentRepository,
+          new InMemoryBookingVerificationRepository()
+        )
+      )
       .overrideProvider(PostgresGuestBookingRepository)
       .useValue({})
       .overrideProvider(AUTH_REPOSITORY)
